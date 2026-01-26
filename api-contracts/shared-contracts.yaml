@@ -1,0 +1,624 @@
+openapi: 3.0.3
+info:
+  title: Shared Contracts
+  version: 1.0.0
+  description: Shared API contracts between different portals
+
+servers:
+  - url: http://localhost:8000
+
+paths:
+  # Sign Up
+  /api/v1/auth/register:
+    post:
+      summary: User registration (role-based)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/PatientRegistration"
+                - $ref: "#/components/schemas/HealthcareProviderRegistration"
+                - $ref: "#/components/schemas/LabRegistration"
+                - $ref: "#/components/schemas/ImagingCenterRegistration"
+              discriminator:
+                propertyName: role
+                mapping:
+                  PATIENT: "#/components/schemas/PatientRegistration"
+                  HEALTHCARE_PROVIDER: "#/components/schemas/HealthcareProviderRegistration"
+                  LAB: "#/components/schemas/LabRegistration"
+                  IMAGING_CENTER: "#/components/schemas/ImagingCenterRegistration"
+      responses:
+        "200":
+          description: Registration session created and OTP sent
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - registrationSessionId
+                  - otpDelivery
+                  - expiresAt
+                properties:
+                  registrationSessionId:
+                    type: string
+                  otpDelivery:
+                    type: string
+                    example: user@email.com
+                  expiresAt:
+                    type: string
+                    format: date-time
+
+  /api/v1/auth/register/resend-otp:
+    post:
+      summary: Resend a new OTP to user email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - registrationSessionId
+              properties:
+                registrationSessionId:
+                  type: string
+      responses:
+        "200":
+          description: New OTP was send successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - registrationSessionId
+                  - otpDelivery
+                  - expiresAt
+                properties:
+                  registrationSessionId:
+                    type: string
+                  otpDelivery:
+                    type: string
+                    example: user@email.com
+                  expiresAt:
+                    type: string
+                    format: date-time
+
+  /api/v1/auth/register/verify-otp:
+    post:
+      summary: Verify users registration OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - registrationSessionId
+                - otp
+              properties:
+                registrationSessionId:
+                  type: string
+                otp:
+                  type: string
+                  pattern: "^[0-9]{6}$"
+      responses:
+        "201":
+          description: OTP is correct, OTP and registration session are not expired
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  registrationStatus:
+                    type: string
+
+  # Sign In
+  /api/v1/auth/login:
+    post:
+      summary: Login with email and password (OTP will be sent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+      responses:
+        "200":
+          description: Credentials valid, OTP sent
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - loginSessionId
+                  - otpDelivery
+                  - expiresAt
+                properties:
+                  loginSessionId:
+                    type: string
+                  otpDelivery:
+                    type: string
+                    example: user@email.com
+                  expiresAt:
+                    type: string
+                    format: date-time
+        "403":
+          description: Account pending admin approval or rejected
+
+  /api/v1/auth/login/resend-otp:
+    post:
+      summary: Resend login OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - loginSessionId
+              properties:
+                loginSessionId:
+                  type: string
+      responses:
+        "200":
+          description: New OTP was send successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - registrationSessionId
+                  - otpDelivery
+                  - expiresAt
+                properties:
+                  loginSessionId:
+                    type: string
+                  otpDelivery:
+                    type: string
+                    example: user@email.com
+                  expiresAt:
+                    type: string
+                    format: date-time
+
+  /api/v1/auth/login/verify-otp:
+    post:
+      summary: Verify login OTP and issue tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - loginSessionId
+                - otp
+              properties:
+                loginSessionId:
+                  type: string
+                otp:
+                  type: string
+                  pattern: "^[0-9]{6}$"
+      responses:
+        "200":
+          description: OTP valid, tokens issued
+          headers:
+            Set-Cookie:
+              description: HttpOnly refresh token cookie (web only)
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - accessToken
+                properties:
+                  accessToken:
+                    type: string
+        "401":
+          description: Invalid or expired OTP
+
+  /api/v1/auth/password-reset/initiate:
+    post:
+      summary: Initiate password reset (OTP sent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        "200":
+          description: Password reset OTP sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resetSessionId:
+                    type: string
+                  otpDelivery:
+                    type: string
+                    example: user@email.com
+                  expiresAt:
+                    type: string
+                    format: date-time
+
+  /api/v1/auth/password-reset/resend-otp:
+    post:
+      summary: Resend password reset OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - resetSessionId
+              properties:
+                resetSessionId:
+                  type: string
+      responses:
+        "200":
+          description: New OTP sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - resetSessionId
+                  - otpDelivery
+                  - expiresAt
+                properties:
+                  resetSessionId:
+                    type: string
+                  otpDelivery:
+                    type: string
+                    example: user@email.com
+                  expiresAt:
+                    type: string
+                    format: date-time
+        "404":
+          description: Reset session not found or expired
+        "400":
+          description: Too many resend attempts
+
+  /api/v1/auth/password-reset/confirm:
+    post:
+      summary: Verify reset OTP and set new password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - resetSessionId
+                - otp
+                - newPassword
+              properties:
+                resetSessionId:
+                  type: string
+                otp:
+                  type: string
+                  pattern: "^[0-9]{6}$"
+                newPassword:
+                  type: string
+                  format: password
+      responses:
+        "200":
+          description: Password reset successful
+        "401":
+          description: Invalid or expired OTP
+
+  /api/v1/auth/refresh:
+    post:
+      summary: Generate new access token using refresh token
+      description: |
+        Refresh token handling depends on client type:
+        - **web**: refresh token is read from HttpOnly cookie
+        - **mobile**: refresh token must be sent in request body
+      parameters:
+        - name: X-Client-Type
+          in: header
+          required: true
+          schema:
+            type: string
+            enum: [web, mobile]
+        - name: refreshToken
+          in: cookie
+          required: false
+          schema:
+            type: string
+          description: |
+            HttpOnly cookie containing refresh token (web clients only)
+
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken:
+                  type: string
+              description: |
+                Required only for mobile clients
+
+      responses:
+        "200":
+          description: Access token refreshed successfully
+          headers:
+            Set-Cookie:
+              description: |
+                New refresh token (web only)
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - accessToken
+                properties:
+                  accessToken:
+                    type: string
+                    description: JWT access token
+                  refreshToken:
+                    type: string
+                    description: Refresh token (only present for mobile clients)
+
+components:
+  # securitySchemes:
+  #   BearerAuth:
+  #     type: http
+  #     scheme: bearer
+  #     bearerFormat: JWT
+
+  schemas:
+    PatientRegistration:
+      type: object
+      required:
+        - role
+        - email
+        - phoneNumber
+        - password
+        - confirmPassword
+        - firstName
+        - surName
+        - gender
+        - dateOfBirth
+        - nationalId
+        - nationalIdFront
+        - nationalIdBack
+        - selfieWithId
+      properties:
+        role:
+          type: string
+          enum: [PATIENT]
+        email:
+          type: string
+          format: email
+        phoneNumber:
+          type: string
+          pattern: "^[0-9]{11}$"
+        password:
+          type: string
+          format: password
+        confirmPassword:
+          type: string
+          format: password
+        firstName:
+          type: string
+        middleName:
+          type: string
+        surName:
+          type: string
+        gender:
+          type: string
+          enum: [MALE, FEMALE]
+        dateOfBirth:
+          type: string
+          format: date
+        nationalId:
+          type: string
+          pattern: "^[0-9]{14}$"
+        nationalIdFront:
+          type: string
+          format: binary
+          maxLength: 5242880
+        nationalIdBack:
+          type: string
+          format: binary
+          maxLength: 5242880
+        selfieWithId:
+          type: string
+          format: binary
+          maxLength: 5242880
+
+    HealthcareProviderRegistration:
+      type: object
+      required:
+        - role
+        - email
+        - phoneNumber
+        - password
+        - firstName
+        - surName
+        - gender
+        - dateOfBirth
+        - nationalId
+        - medicalLicenseNumber
+        - specialization
+        - workplaceName
+        - workplaceAddress
+        - nationalIdFront
+        - nationalIdBack
+        - medicalLicenseDocument
+        - workplaceDocument
+      properties:
+        role:
+          type: string
+          enum: [HEALTHCARE_PROVIDER]
+        email:
+          type: string
+          format: email
+        phoneNumber:
+          type: string
+          pattern: "^[0-9]{11}$"
+        password:
+          type: string
+          format: password
+        firstName:
+          type: string
+        middleName:
+          type: string
+        surName:
+          type: string
+        gender:
+          type: string
+          enum: [MALE, FEMALE]
+        dateOfBirth:
+          type: string
+          format: date
+        nationalId:
+          type: string
+          pattern: "^[0-9]{14}$"
+        medicalLicenseNumber:
+          type: string
+        specialization:
+          type: string
+        workplaceName:
+          type: string
+        workplaceAddress:
+          type: string
+        workplaceLogo:
+          type: string
+          format: binary
+          maxLength: 5242880
+        nationalIdFront:
+          type: string
+          format: binary
+          maxLength: 5242880
+        nationalIdBack:
+          type: string
+          format: binary
+          maxLength: 5242880
+        medicalLicenseDocument:
+          type: string
+          format: binary
+          maxLength: 5242880
+        workplaceDocument:
+          type: string
+          format: binary
+          maxLength: 5242880
+
+    LabRegistration:
+      type: object
+      required:
+        - role
+        - email
+        - phoneNumber
+        - password
+        - centerName
+        - centerAddress
+        - registrationNumber
+        - administratorFullName
+        - accreditationDocument
+      properties:
+        role:
+          type: string
+          enum: [LAB]
+        email:
+          type: string
+          format: email
+        phoneNumber:
+          type: string
+          pattern: "^[0-9]{11}$"
+        password:
+          type: string
+          format: password
+        centerName:
+          type: string
+        centerAddress:
+          type: string
+        registrationNumber:
+          type: string
+        administratorFullName:
+          type: string
+        accreditationDocument:
+          type: string
+          format: binary
+          maxLength: 5242880
+        proofOfAddress:
+          type: string
+          format: binary
+          maxLength: 5242880
+        labLogo:
+          type: string
+          format: binary
+          maxLength: 5242880
+
+    ImagingCenterRegistration:
+      type: object
+      required:
+        - role
+        - email
+        - phoneNumber
+        - password
+        - centerName
+        - centerAddress
+        - registrationNumber
+        - administratorFullName
+        - accreditationDocument
+      properties:
+        role:
+          type: string
+          enum: [IMAGING_CENTER]
+        email:
+          type: string
+          format: email
+        phoneNumber:
+          type: string
+          pattern: "^[0-9]{11}$"
+        password:
+          type: string
+          format: password
+        centerName:
+          type: string
+        centerAddress:
+          type: string
+        registrationNumber:
+          type: string
+        administratorFullName:
+          type: string
+        accreditationDocument:
+          type: string
+          format: binary
+          maxLength: 5242880
+        proofOfAddress:
+          type: string
+          format: binary
+          maxLength: 5242880
+        centerLogo:
+          type: string
+          format: binary
+          maxLength: 5242880
