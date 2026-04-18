@@ -1,0 +1,1587 @@
+openapi: 3.0.3
+info:
+  title: Sijill - Clinical API Contract
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+  - url: https://api.sijill.gov/api/v1
+    description: Production server
+
+tags:
+  - name: permission-tokens
+    description: Patient permission token generation and management
+  - name: clinical-sessions
+    description: HCP token redemption and patient access sessions
+  - name: medical-identity
+    description: Patient medical identity — read and limited update
+  - name: medical-history
+    description: Patient historical encounter records
+  - name: encounters
+    description: New clinical encounter documentation by HCP
+
+# -------------------------------------------------------
+# PATHS
+# -------------------------------------------------------
+paths:
+  # -------------------------------------------------------
+  # PERMISSION TOKENS (Patient side)
+  # -------------------------------------------------------
+
+  /clinical/permission-tokens:
+    post:
+      tags:
+        - permission-tokens
+      summary: Generate a new permission token
+      description: |
+        **Role required: PATIENT**
+
+        Patient generates a new permission token to grant a specific entity
+        access to their medical data.
+
+        - For `HEALTHCARE_PROVIDER` entity type, `accessType` is required.
+        - For `LAB` and `IMAGING_CENTER` entity types, `accessType` is always
+          implicitly `WRITE_ONLY` (they can only upload results) and should
+          not be provided.
+
+        The token is a 6-digit numeric code returned in plaintext **once**.
+        It is stored hashed on the server and cannot be retrieved again.
+        The `expiresInMinutes` field controls how long the token stays valid.
+      operationId: generatePermissionToken
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GeneratePermissionTokenDto"
+      responses:
+        "201":
+          description: Token generated successfully. Code is shown once and cannot be retrieved again.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratePermissionTokenResponse"
+        "400":
+          description: |
+            Bad Request. Possible reasons:
+            - `accessType` provided for LAB or IMAGING_CENTER entity type
+            - `accessType` missing for HEALTHCARE_PROVIDER entity type
+            - Invalid `expiresInMinutes` value
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    get:
+      tags:
+        - permission-tokens
+      summary: List all active permission tokens
+      description: |
+        **Role required: PATIENT**
+
+        Returns all tokens the patient currently has with status `ACTIVE`.
+        This is what populates the "Active Tokens" screen in the mobile app.
+        Expired and revoked tokens are not returned here.
+      operationId: listActivePermissionTokens
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: List of active tokens returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivePermissionTokensResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /clinical/permission-tokens/{tokenId}/revoke:
+    patch:
+      tags:
+        - permission-tokens
+      summary: Revoke a permission token
+      description: |
+        **Role required: PATIENT**
+
+        Immediately revokes an active token. Once revoked, the token cannot
+        be used by any entity to start or continue a session.
+
+        The patient can only revoke their own tokens.
+      operationId: revokePermissionToken
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: tokenId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The ID of the permission token to revoke
+      responses:
+        "200":
+          description: Token revoked successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevokeTokenResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            Forbidden. Possible reasons:
+            - Token does not belong to the authenticated patient
+            - Token is already revoked or expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForbiddenError"
+        "404":
+          description: Token not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # -------------------------------------------------------
+  # CLINICAL SESSIONS (HCP side — token redemption)
+  # -------------------------------------------------------
+
+  /clinical/sessions:
+    post:
+      tags:
+        - clinical-sessions
+      summary: Start a patient session using a permission token
+      description: |
+        **Role required: HEALTHCARE_PROVIDER**
+
+        The HCP submits the 6-digit code given to them by the patient.
+        If the code is valid, active, and matches the entity type
+        `HEALTHCARE_PROVIDER`, the server:
+
+        1. Validates the token (not expired, not revoked, correct entity type)
+        2. Creates a record in `patient_access_grants`
+        3. Returns a `clinicalSessionToken` — a short-lived JWT that the HCP
+           uses as the Bearer token for all subsequent medical-identity,
+           medical-history, and encounter endpoints in this session.
+
+        The `accessType` embedded in the token controls what the HCP can do:
+        - `READ_ONLY` — can view identity and history, cannot create encounter
+        - `WRITE_ONLY` — can view identity and create encounter, cannot view history
+        - `READ_WRITE` — full access
+
+        **Note:** The HCP's regular JWT is used to authenticate this request,
+        but the returned `clinicalSessionToken` replaces it for all clinical
+        endpoints during this session.
+      operationId: startClinicalSession
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartSessionDto"
+      responses:
+        "201":
+          description: Session started successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartSessionResponse"
+        "400":
+          description: |
+            Bad Request. Possible reasons:
+            - Code format is invalid (must be 6 digits)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            Forbidden. Possible reasons:
+            - Token is expired
+            - Token has been revoked
+            - Token entity type does not match HEALTHCARE_PROVIDER
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForbiddenError"
+        "404":
+          description: No active token found matching this code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # -------------------------------------------------------
+  # MEDICAL IDENTITY
+  # -------------------------------------------------------
+
+  /clinical/sessions/{sessionId}/medical-identity:
+    get:
+      tags:
+        - medical-identity
+      summary: Get patient medical identity
+      description: |
+        **Auth: Clinical Session Token (Bearer)**
+        **Access type required: READ_ONLY, READ_WRITE, or WRITE_ONLY**
+
+        Returns the full medical identity of the patient associated with
+        the current session. All access types can view the medical identity.
+
+        Includes:
+        - Basic info (name, gender, age, blood type, weight, height)
+        - Active diagnoses
+        - Current medications
+        - Allergies
+        - Chronic conditions (diagnoses where is_chronic = true)
+        - Emergency contacts
+      operationId: getMedicalIdentity
+      security:
+        - ClinicalSessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Medical identity returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MedicalIdentityResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    patch:
+      tags:
+        - medical-identity
+      summary: Update basic vitals on medical identity
+      description: |
+        **Auth: Clinical Session Token (Bearer)**
+        **Access type required: WRITE_ONLY or READ_WRITE**
+
+        Allows the HCP to fill in the patient's `blood_type`, `weight_kg`,
+        and/or `height_cm` if they are currently null.
+
+        These are the only fields an HCP can update on the identity directly.
+        Everything else (diagnoses, medications, allergies) is written through
+        the encounter endpoint.
+
+        Only fields that are currently `null` can be set. Attempting to
+        overwrite an existing value will return a 400.
+      operationId: updatePatientVitals
+      security:
+        - ClinicalSessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVitalsDto"
+      responses:
+        "200":
+          description: Vitals updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateVitalsResponse"
+        "400":
+          description: |
+            Bad Request. Possible reasons:
+            - Attempting to overwrite an already-set field
+            - Invalid blood type value
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            Forbidden. Possible reasons:
+            - Session access type is READ_ONLY
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForbiddenError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # -------------------------------------------------------
+  # MEDICAL HISTORY
+  # -------------------------------------------------------
+
+  /clinical/sessions/{sessionId}/medical-history:
+    get:
+      tags:
+        - medical-history
+      summary: Get patient encounter history (summary list)
+      description: |
+        **Auth: Clinical Session Token (Bearer)**
+        **Access type required: READ_ONLY or READ_WRITE**
+
+        Returns a paginated list of the patient's past clinical encounters,
+        each as a summary card. This is the list view the HCP sees when they
+        click "Medical History".
+
+        Each item contains just enough to identify the encounter:
+        HCP name and specialization, encounter date, location, and the
+        primary diagnosis ICD-11 code and title.
+      operationId: getMedicalHistory
+      security:
+        - ClinicalSessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 50
+      responses:
+        "200":
+          description: Encounter history list returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MedicalHistoryListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            Forbidden. Possible reasons:
+            - Session access type is WRITE_ONLY
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForbiddenError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /clinical/sessions/{sessionId}/medical-history/{encounterId}:
+    get:
+      tags:
+        - medical-history
+      summary: Get full detail of a single past encounter
+      description: |
+        **Auth: Clinical Session Token (Bearer)**
+        **Access type required: READ_ONLY or READ_WRITE**
+
+        Returns the complete detail of a single historical encounter.
+
+        Includes:
+        - Encounter metadata (HCP, date, location)
+        - Symptoms and complaints
+        - Diagnoses with clinical descriptions
+        - Prescribed medications
+        - Medical orders (lab and imaging) and their results if available
+      operationId: getEncounterDetail
+      security:
+        - ClinicalSessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - name: encounterId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The ID of the past encounter to retrieve
+      responses:
+        "200":
+          description: Encounter detail returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EncounterDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            Forbidden. Possible reasons:
+            - Session access type is WRITE_ONLY
+            - Encounter does not belong to the session patient
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForbiddenError"
+        "404":
+          description: Session or encounter not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # -------------------------------------------------------
+  # ENCOUNTERS (HCP creates new encounter)
+  # -------------------------------------------------------
+
+  /clinical/sessions/{sessionId}/encounters:
+    post:
+      tags:
+        - encounters
+      summary: Create a new clinical encounter
+      description: |
+        **Auth: Clinical Session Token (Bearer)**
+        **Access type required: WRITE_ONLY or READ_WRITE**
+
+        The HCP submits the full encounter in one request. This is a single
+        atomic operation — either everything is saved or nothing is.
+
+        The request body contains:
+        - Symptoms and complaints (one or more)
+        - Diagnoses (one or more, each with optional chronic flag)
+        - Medications (zero or more)
+        - Lab orders (zero or more)
+        - Imaging orders (zero or more)
+        - Allergies discovered during encounter (zero or more)
+        - Next appointment details (optional)
+
+        **What the server does automatically:**
+        - Sets `encounter_date` to now
+        - Sets `hcp_id` from the session
+        - Sets `patient_id` from the session
+        - For each diagnosis with `is_chronic: true`, tags it accordingly
+        - For each medication, creates a `MEDICATION_REMINDER` notification
+        - For each lab/imaging order, creates a `MEDICAL_ORDER` notification
+        - If `nextAppointmentDate` is provided, creates an
+          `APPOINTMENT_REMINDER` notification
+      operationId: createEncounter
+      security:
+        - ClinicalSessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEncounterDto"
+      responses:
+        "201":
+          description: Encounter created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateEncounterResponse"
+        "400":
+          description: |
+            Bad Request. Possible reasons:
+            - No symptoms provided
+            - No diagnoses provided
+            - Invalid ICD-11 code format
+            - Invalid medication dates (end before start)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            Forbidden. Possible reasons:
+            - Session access type is READ_ONLY
+            - Session is expired or revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForbiddenError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+# -------------------------------------------------------
+# COMPONENTS
+# -------------------------------------------------------
+components:
+  parameters:
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: The clinical session ID returned from POST /clinical/sessions
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/UnauthorizedError"
+    Forbidden:
+      description: Authenticated but not permitted to perform this action
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ForbiddenError"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/NotFoundError"
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/InternalServerError"
+
+  schemas:
+    # -------------------------------------------------------
+    # REQUEST SCHEMAS
+    # -------------------------------------------------------
+
+    GeneratePermissionTokenDto:
+      type: object
+      required:
+        - entityType
+        - expiresInMinutes
+      properties:
+        entityType:
+          type: string
+          enum: [HEALTHCARE_PROVIDER, LAB, IMAGING_CENTER]
+          description: The type of entity the patient is granting access to
+          example: HEALTHCARE_PROVIDER
+        accessType:
+          type: string
+          enum: [READ_ONLY, WRITE_ONLY, READ_WRITE]
+          description: |
+            Required when entityType is HEALTHCARE_PROVIDER.
+            Must not be provided for LAB or IMAGING_CENTER.
+          example: READ_WRITE
+        expiresInMinutes:
+          type: integer
+          enum: [15, 30, 45, 60]
+          description: How long the token stays valid in minutes
+          example: 30
+
+    StartSessionDto:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          pattern: "^[0-9]{6}$"
+          description: The 6-digit permission code given by the patient
+          example: "482910"
+
+    UpdateVitalsDto:
+      type: object
+      description: |
+        At least one field must be provided.
+        Only fields that are currently null on the patient record can be set.
+      properties:
+        bloodType:
+          type: string
+          enum: [A+, A-, B+, B-, AB+, AB-, O+, O-, UNKNOWN]
+          example: "O+"
+        weightKg:
+          type: integer
+          minimum: 1
+          maximum: 500
+          example: 75
+        heightCm:
+          type: integer
+          minimum: 1
+          maximum: 300
+          example: 175
+
+    CreateEncounterDto:
+      type: object
+      required:
+        - symptoms
+        - diagnoses
+      properties:
+        locationAddress:
+          type: string
+          description: Where the encounter took place (clinic name and/or address)
+          example: "Cairo Medical Center, 12 Tahrir St, Cairo"
+        symptoms:
+          type: array
+          minItems: 1
+          description: One or more symptoms or complaints reported in this encounter
+          items:
+            $ref: "#/components/schemas/SymptomInput"
+        diagnoses:
+          type: array
+          minItems: 1
+          description: One or more diagnoses made in this encounter
+          items:
+            $ref: "#/components/schemas/DiagnosisInput"
+        medications:
+          type: array
+          description: Medications prescribed in this encounter
+          items:
+            $ref: "#/components/schemas/MedicationInput"
+        labOrders:
+          type: array
+          description: Lab test orders made in this encounter
+          items:
+            $ref: "#/components/schemas/LabOrderInput"
+        imagingOrders:
+          type: array
+          description: Imaging orders made in this encounter
+          items:
+            $ref: "#/components/schemas/ImagingOrderInput"
+        allergies:
+          type: array
+          description: New allergies identified during this encounter
+          items:
+            $ref: "#/components/schemas/AllergyInput"
+        nextAppointmentDate:
+          type: string
+          format: date-time
+          description: Scheduled date for the next appointment
+          example: "2026-06-15T10:00:00.000Z"
+        appointmentNotes:
+          type: string
+          description: Notes for the next appointment
+          example: "Follow up on blood test results"
+
+    SymptomInput:
+      type: object
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          maxLength: 500
+          example: "Persistent dry cough"
+        description:
+          type: string
+          example: "Patient reports cough lasting 3 weeks, worse at night"
+
+    DiagnosisInput:
+      type: object
+      required:
+        - icd11Code
+        - icd11Title
+      properties:
+        icd11Code:
+          type: string
+          maxLength: 20
+          example: "CA23"
+        icd11Title:
+          type: string
+          maxLength: 500
+          example: "Asthma"
+        clinicalDescription:
+          type: string
+          example: "Mild intermittent asthma, triggered by dust and cold air"
+        isChronic:
+          type: boolean
+          default: false
+          description: Tag this diagnosis as a chronic condition
+          example: false
+
+    MedicationInput:
+      type: object
+      required:
+        - medicationName
+        - dosageAmount
+        - dosageUnit
+        - form
+        - frequency
+        - startDate
+      properties:
+        medicationName:
+          type: string
+          maxLength: 500
+          example: "Salbutamol"
+        dosageAmount:
+          type: number
+          example: 100
+        dosageUnit:
+          type: string
+          enum:
+            [
+              MG,
+              MCG,
+              G,
+              ML,
+              IU,
+              UNITS,
+              DROPS,
+              PUFFS,
+              TABLETS,
+              CAPSULES,
+              TEASPOONS,
+            ]
+          example: MCG
+        form:
+          type: string
+          enum:
+            [
+              TABLET,
+              CAPSULE,
+              LIQUID,
+              INJECTION,
+              TOPICAL,
+              INHALER,
+              DROPS,
+              PATCH,
+              OTHER,
+            ]
+          example: INHALER
+        frequency:
+          type: string
+          enum:
+            [
+              ONCE_DAILY,
+              TWICE_DAILY,
+              THREE_TIMES_DAILY,
+              FOUR_TIMES_DAILY,
+              EVERY_6_HOURS,
+              EVERY_8_HOURS,
+              EVERY_12_HOURS,
+              ONCE_WEEKLY,
+              TWICE_WEEKLY,
+              ONCE_MONTHLY,
+              AS_NEEDED,
+            ]
+          example: AS_NEEDED
+        startDate:
+          type: string
+          format: date
+          example: "2026-04-18"
+        endDate:
+          type: string
+          format: date
+          example: "2026-07-18"
+        instructions:
+          type: string
+          example: "Use 2 puffs when experiencing shortness of breath"
+        diagnosisIndex:
+          type: integer
+          description: |
+            Zero-based index into the diagnoses array to link this medication
+            to a specific diagnosis in this encounter. Omit to leave unlinked.
+          example: 0
+
+    LabOrderInput:
+      type: object
+      required:
+        - testTypeId
+        - priority
+      properties:
+        testTypeId:
+          type: integer
+          description: ID from ref_test_types table
+          example: 1
+        specimenTypeId:
+          type: integer
+          description: ID from ref_specimen_types table
+          example: 1
+        priority:
+          type: string
+          enum: [ROUTINE, URGENT, STAT]
+          example: ROUTINE
+        fastingRequired:
+          type: boolean
+          default: false
+          example: false
+        clinicalIndication:
+          type: string
+          example: "Rule out anaemia"
+
+    ImagingOrderInput:
+      type: object
+      required:
+        - imagingTypeId
+        - bodyPartId
+        - priority
+      properties:
+        imagingTypeId:
+          type: integer
+          description: ID from ref_imaging_types table
+          example: 3
+        bodyPartId:
+          type: integer
+          description: ID from ref_body_parts table
+          example: 3
+        priority:
+          type: string
+          enum: [ROUTINE, URGENT, STAT]
+          example: ROUTINE
+        contrastUsed:
+          type: boolean
+          default: false
+          example: false
+        clinicalIndication:
+          type: string
+          example: "Evaluate lung hyperinflation"
+
+    AllergyInput:
+      type: object
+      required:
+        - allergenName
+        - severity
+      properties:
+        allergenName:
+          type: string
+          maxLength: 500
+          example: "Penicillin"
+        severity:
+          type: string
+          enum: [MILD, MODERATE, SEVERE, LIFE_THREATENING]
+          example: SEVERE
+        reactionDescription:
+          type: string
+          example: "Anaphylactic reaction with hives and throat swelling"
+
+    # -------------------------------------------------------
+    # RESPONSE SCHEMAS
+    # -------------------------------------------------------
+
+    GeneratePermissionTokenResponse:
+      type: object
+      properties:
+        tokenId:
+          type: string
+          format: uuid
+          description: The ID of the token (used for revocation)
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        code:
+          type: string
+          description: |
+            The 6-digit code to give to the HCP.
+            This is shown ONCE and cannot be retrieved again.
+          example: "482910"
+        entityType:
+          type: string
+          example: HEALTHCARE_PROVIDER
+        accessType:
+          type: string
+          example: READ_WRITE
+        expiresAt:
+          type: string
+          format: date-time
+          example: "2026-04-18T11:30:00.000Z"
+
+    ActivePermissionTokensResponse:
+      type: object
+      properties:
+        tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActiveTokenSummary"
+
+    ActiveTokenSummary:
+      type: object
+      properties:
+        tokenId:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        entityType:
+          type: string
+          example: HEALTHCARE_PROVIDER
+        accessType:
+          type: string
+          example: READ_WRITE
+        expiresAt:
+          type: string
+          format: date-time
+          example: "2026-04-18T11:30:00.000Z"
+        createdAt:
+          type: string
+          format: date-time
+          example: "2026-04-18T11:00:00.000Z"
+        wasUsed:
+          type: boolean
+          description: Whether this token has already been redeemed by someone
+          example: false
+
+    RevokeTokenResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Token revoked successfully"
+        tokenId:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        revokedAt:
+          type: string
+          format: date-time
+          example: "2026-04-18T11:05:00.000Z"
+
+    StartSessionResponse:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+          description: Used as the {sessionId} path parameter in all subsequent clinical endpoints
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        clinicalSessionToken:
+          type: string
+          description: |
+            A short-lived JWT scoped to this patient session.
+            Use this as the Bearer token for all /clinical/sessions/{sessionId}/* endpoints.
+            Expires when the original permission token expires.
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        accessType:
+          type: string
+          enum: [READ_ONLY, WRITE_ONLY, READ_WRITE]
+          description: What this session allows the HCP to do
+          example: READ_WRITE
+        expiresAt:
+          type: string
+          format: date-time
+          example: "2026-04-18T11:30:00.000Z"
+        patient:
+          type: object
+          description: Basic patient info shown immediately on the HCP dashboard
+          properties:
+            patientId:
+              type: string
+              format: uuid
+              example: "abc12345-e89b-12d3-a456-426614174000"
+            fullName:
+              type: string
+              example: "Sara Ahmed Jenkins"
+            gender:
+              type: string
+              example: FEMALE
+            age:
+              type: integer
+              description: Calculated from date_of_birth
+              example: 34
+
+    MedicalIdentityResponse:
+      type: object
+      properties:
+        basicInfo:
+          type: object
+          properties:
+            fullName:
+              type: string
+              example: "Sara Ahmed Jenkins"
+            gender:
+              type: string
+              example: FEMALE
+            age:
+              type: integer
+              example: 34
+            bloodType:
+              type: string
+              nullable: true
+              example: "O+"
+            weightKg:
+              type: integer
+              nullable: true
+              example: 65
+            heightCm:
+              type: integer
+              nullable: true
+              example: 168
+            profilePictureUrl:
+              type: string
+              nullable: true
+              example: "https://files.sijill.gov/profiles/abc123.jpg"
+        activeDiagnoses:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActiveDiagnosisSummary"
+        currentMedications:
+          type: array
+          items:
+            $ref: "#/components/schemas/MedicationSummary"
+        allergies:
+          type: array
+          items:
+            $ref: "#/components/schemas/AllergySummary"
+        chronicConditions:
+          type: array
+          description: Diagnoses where is_chronic = true
+          items:
+            $ref: "#/components/schemas/ChronicConditionSummary"
+        emergencyContacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmergencyContactSummary"
+
+    ActiveDiagnosisSummary:
+      type: object
+      properties:
+        diagnosisId:
+          type: string
+          format: uuid
+        icd11Code:
+          type: string
+          example: "CA23"
+        icd11Title:
+          type: string
+          example: "Asthma"
+        diagnosedBy:
+          type: string
+          description: Full name of the HCP who made the diagnosis
+          example: "Dr. Khaled Mostafa"
+        diagnosedDate:
+          type: string
+          format: date-time
+          example: "2025-11-10T09:00:00.000Z"
+
+    MedicationSummary:
+      type: object
+      properties:
+        medicationId:
+          type: string
+          format: uuid
+        medicationName:
+          type: string
+          example: "Salbutamol"
+        dosageAmount:
+          type: number
+          example: 100
+        dosageUnit:
+          type: string
+          example: MCG
+        form:
+          type: string
+          example: INHALER
+        frequency:
+          type: string
+          example: AS_NEEDED
+        startDate:
+          type: string
+          format: date
+          example: "2026-01-01"
+        endDate:
+          type: string
+          format: date
+          nullable: true
+          example: "2026-07-01"
+        prescribedBy:
+          type: string
+          description: Full name of the prescribing HCP
+          example: "Dr. Khaled Mostafa"
+        prescribedAt:
+          type: string
+          format: date-time
+          example: "2026-01-01T10:00:00.000Z"
+
+    AllergySummary:
+      type: object
+      properties:
+        allergyId:
+          type: string
+          format: uuid
+        allergenName:
+          type: string
+          example: "Penicillin"
+        severity:
+          type: string
+          example: SEVERE
+        reactionDescription:
+          type: string
+          example: "Anaphylactic reaction"
+        verifiedBy:
+          type: string
+          description: Full name of the HCP who recorded this allergy
+          example: "Dr. Khaled Mostafa"
+        verifiedDate:
+          type: string
+          format: date
+          example: "2025-03-15"
+
+    ChronicConditionSummary:
+      type: object
+      properties:
+        diagnosisId:
+          type: string
+          format: uuid
+        icd11Code:
+          type: string
+          example: "5A10"
+        icd11Title:
+          type: string
+          example: "Type 2 diabetes mellitus"
+        diagnosedBy:
+          type: string
+          example: "Dr. Khaled Mostafa"
+        diagnosedDate:
+          type: string
+          format: date-time
+          example: "2023-06-01T00:00:00.000Z"
+
+    EmergencyContactSummary:
+      type: object
+      properties:
+        contactId:
+          type: string
+          format: uuid
+        contactName:
+          type: string
+          example: "Ahmed Jenkins"
+        relationship:
+          type: string
+          example: SPOUSE
+        phoneNumber:
+          type: string
+          example: "+201012345678"
+        isPrimary:
+          type: boolean
+          example: true
+
+    UpdateVitalsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        updatedFields:
+          type: array
+          items:
+            type: string
+          description: Which fields were actually updated
+          example: ["bloodType", "weightKg"]
+        bloodType:
+          type: string
+          nullable: true
+          example: "O+"
+        weightKg:
+          type: integer
+          nullable: true
+          example: 75
+        heightCm:
+          type: integer
+          nullable: true
+          example: 175
+
+    MedicalHistoryListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/EncounterSummaryCard"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    EncounterSummaryCard:
+      type: object
+      description: Summary card shown in the medical history list
+      properties:
+        encounterId:
+          type: string
+          format: uuid
+        hcpFullName:
+          type: string
+          example: "Dr. Khaled Mostafa"
+        hcpSpecialization:
+          type: string
+          example: "Pulmonology"
+        encounterDate:
+          type: string
+          format: date-time
+          example: "2026-03-10T09:30:00.000Z"
+        locationAddress:
+          type: string
+          example: "Cairo Medical Center, 12 Tahrir St, Cairo"
+        primaryDiagnosis:
+          type: object
+          description: The first diagnosis from this encounter
+          properties:
+            icd11Code:
+              type: string
+              example: "CA23"
+            icd11Title:
+              type: string
+              example: "Asthma"
+
+    EncounterDetailResponse:
+      type: object
+      properties:
+        encounterId:
+          type: string
+          format: uuid
+        hcpFullName:
+          type: string
+          example: "Dr. Khaled Mostafa"
+        hcpSpecialization:
+          type: string
+          example: "Pulmonology"
+        encounterDate:
+          type: string
+          format: date-time
+          example: "2026-03-10T09:30:00.000Z"
+        locationAddress:
+          type: string
+          example: "Cairo Medical Center, 12 Tahrir St, Cairo"
+        nextAppointmentDate:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2026-06-15T10:00:00.000Z"
+        appointmentNotes:
+          type: string
+          nullable: true
+          example: "Follow up on blood test results"
+        symptoms:
+          type: array
+          items:
+            $ref: "#/components/schemas/SymptomDetail"
+        diagnoses:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosisDetail"
+        medications:
+          type: array
+          items:
+            $ref: "#/components/schemas/MedicationSummary"
+        orders:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderDetail"
+
+    SymptomDetail:
+      type: object
+      properties:
+        symptomId:
+          type: string
+          format: uuid
+        title:
+          type: string
+          example: "Persistent dry cough"
+        description:
+          type: string
+          nullable: true
+          example: "Cough lasting 3 weeks, worse at night"
+
+    DiagnosisDetail:
+      type: object
+      properties:
+        diagnosisId:
+          type: string
+          format: uuid
+        icd11Code:
+          type: string
+          example: "CA23"
+        icd11Title:
+          type: string
+          example: "Asthma"
+        clinicalDescription:
+          type: string
+          nullable: true
+          example: "Mild intermittent asthma"
+        isChronic:
+          type: boolean
+          example: false
+        status:
+          type: string
+          example: ACTIVE
+
+    OrderDetail:
+      type: object
+      properties:
+        orderId:
+          type: string
+          format: uuid
+        orderType:
+          type: string
+          enum: [LABORATORY, IMAGING]
+          example: LABORATORY
+        orderStatus:
+          type: string
+          enum: [PENDING, IN_PROGRESS, COMPLETED, CANCELLED]
+          example: COMPLETED
+        orderedAt:
+          type: string
+          format: date-time
+          example: "2026-03-10T09:45:00.000Z"
+        labOrder:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/LabOrderDetail"
+        imagingOrder:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ImagingOrderDetail"
+
+    LabOrderDetail:
+      type: object
+      properties:
+        testType:
+          type: string
+          example: "COMPLETE_BLOOD_COUNT"
+        specimenType:
+          type: string
+          example: "BLOOD"
+        priority:
+          type: string
+          example: ROUTINE
+        fastingRequired:
+          type: boolean
+          example: false
+        clinicalIndication:
+          type: string
+          nullable: true
+          example: "Rule out anaemia"
+        result:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/LabResultDetail"
+
+    ImagingOrderDetail:
+      type: object
+      properties:
+        imagingType:
+          type: string
+          example: "MRI"
+        bodyPart:
+          type: string
+          example: "CHEST"
+        priority:
+          type: string
+          example: ROUTINE
+        contrastUsed:
+          type: boolean
+          example: false
+        clinicalIndication:
+          type: string
+          nullable: true
+          example: "Evaluate lung hyperinflation"
+        result:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ImagingResultDetail"
+
+    LabResultDetail:
+      type: object
+      properties:
+        resultData:
+          type: object
+          description: Structured result data as uploaded by the lab (free-form JSON)
+          example: { "haemoglobin": "13.5 g/dL", "WBC": "7.2 x10^9/L" }
+        additionalNotes:
+          type: string
+          nullable: true
+          example: "All values within normal range"
+        uploadedAt:
+          type: string
+          format: date-time
+          example: "2026-03-12T14:00:00.000Z"
+        documents:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocumentReference"
+
+    ImagingResultDetail:
+      type: object
+      properties:
+        studyDescription:
+          type: string
+          nullable: true
+          example: "Chest MRI without contrast"
+        findings:
+          type: string
+          nullable: true
+          example: "No significant abnormalities detected"
+        uploadedAt:
+          type: string
+          format: date-time
+          example: "2026-03-12T16:00:00.000Z"
+        documents:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocumentReference"
+
+    DocumentReference:
+      type: object
+      properties:
+        documentId:
+          type: string
+          format: uuid
+        fileName:
+          type: string
+          example: "cbc_result_march2026.pdf"
+        mimeType:
+          type: string
+          example: "application/pdf"
+        fileSizeBytes:
+          type: integer
+          example: 204800
+        url:
+          type: string
+          example: "https://files.sijill.gov/results/abc123.pdf"
+
+    CreateEncounterResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        encounterId:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        message:
+          type: string
+          example: "Encounter recorded successfully"
+        notificationsCreated:
+          type: integer
+          description: How many patient notifications were automatically created
+          example: 3
+
+    Pagination:
+      type: object
+      properties:
+        total:
+          type: integer
+          example: 42
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 10
+        totalPages:
+          type: integer
+          example: 5
+
+    # -------------------------------------------------------
+    # ERROR SCHEMAS
+    # -------------------------------------------------------
+
+    BadRequestError:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+          example: 400
+        message:
+          type: string
+          example: "accessType is required for HEALTHCARE_PROVIDER entity type"
+        error:
+          type: string
+          example: "Bad Request"
+
+    UnauthorizedError:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+          example: 401
+        message:
+          type: string
+          example: "Missing or invalid authentication token"
+        error:
+          type: string
+          example: "Unauthorized"
+
+    ForbiddenError:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+          example: 403
+        message:
+          type: string
+          example: "This session does not permit this action"
+        error:
+          type: string
+          example: "Forbidden"
+
+    NotFoundError:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+          example: 404
+        message:
+          type: string
+          example: "Resource not found"
+        error:
+          type: string
+          example: "Not Found"
+
+    InternalServerError:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+          example: 500
+        message:
+          type: string
+          example: "An unexpected error occurred"
+        error:
+          type: string
+          example: "Internal Server Error"
+
+  # -------------------------------------------------------
+  # SECURITY SCHEMES
+  # -------------------------------------------------------
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Standard user JWT returned from POST /auth/login/verify-otp.
+        Used to authenticate as a PATIENT or HEALTHCARE_PROVIDER.
+
+    ClinicalSessionToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Short-lived JWT scoped to a specific patient session.
+        Returned from POST /clinical/sessions.
+        Used for all /clinical/sessions/{sessionId}/* endpoints.
