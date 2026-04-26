@@ -1,0 +1,738 @@
+openapi: 3.0.3
+
+info:
+  title: Patient Module API
+  version: 1.0.0
+  description: >
+    Endpoints for the patient-facing features: medical identity and health journal.
+    All endpoints require a valid Bearer access token issued to a PATIENT account.
+
+servers:
+  - url: /api/v1/patient
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+
+    # ─── Shared primitives ────────────────────────────────────────────────────
+
+    Diagnosis:
+      type: object
+      properties:
+        diagnosisId:
+          type: string
+          format: uuid
+        icd11Code:
+          type: string
+          nullable: true
+          example: "5A11"
+        icd11Title:
+          type: string
+          nullable: true
+          example: "Type 2 diabetes mellitus"
+        isChronic:
+          type: boolean
+
+    # ─── Medical Identity ─────────────────────────────────────────────────────
+
+    MedicalIdentityResponse:
+      type: object
+      properties:
+        basicInfo:
+          type: object
+          properties:
+            age:
+              type: integer
+              example: 33
+            gender:
+              type: string
+              enum: [MALE, FEMALE]
+            bloodType:
+              type: string
+              nullable: true
+              enum: ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "UNKNOWN"]
+            weightKg:
+              type: integer
+              nullable: true
+              example: 65
+            heightCm:
+              type: integer
+              nullable: true
+              example: 168
+            bmi:
+              type: number
+              format: float
+              nullable: true
+              example: 23.03
+        activeDiagnoses:
+          type: array
+          items:
+            type: object
+            properties:
+              diagnosisId:
+                type: string
+                format: uuid
+              icd11Code:
+                type: string
+                nullable: true
+              icd11Title:
+                type: string
+                nullable: true
+              diagnosedBy:
+                type: string
+                nullable: true
+                example: "Khaled Mohamed Mostafa"
+              diagnosedDate:
+                type: string
+                format: date-time
+                nullable: true
+        currentMedications:
+          type: array
+          items:
+            type: object
+            properties:
+              medicationName:
+                type: string
+                nullable: true
+              dosageAmount:
+                type: number
+                nullable: true
+              dosageUnit:
+                type: string
+                nullable: true
+                enum: [MG, MCG, G, ML, IU, UNITS, DROPS, PUFFS, TABLETS, CAPSULES, TEASPOONS]
+              form:
+                type: string
+                nullable: true
+                enum: [TABLET, CAPSULE, LIQUID, INJECTION, TOPICAL, INHALER, DROPS, PATCH, OTHER]
+              frequency:
+                type: string
+                nullable: true
+              startDate:
+                type: string
+                format: date
+                nullable: true
+              endDate:
+                type: string
+                format: date
+                nullable: true
+              prescribedBy:
+                type: string
+                nullable: true
+              prescribedAt:
+                type: string
+                format: date-time
+                nullable: true
+        allergies:
+          type: array
+          items:
+            type: object
+            properties:
+              allergenName:
+                type: string
+                nullable: true
+              severity:
+                type: string
+                nullable: true
+                enum: [MILD, MODERATE, SEVERE, LIFE_THREATENING]
+              reactionDescription:
+                type: string
+                nullable: true
+              diagnosedBy:
+                type: string
+                nullable: true
+              diagnosedDate:
+                type: string
+                format: date
+                nullable: true
+        chronicConditions:
+          type: array
+          items:
+            type: object
+            properties:
+              diagnosisId:
+                type: string
+                format: uuid
+              icd11Code:
+                type: string
+                nullable: true
+              icd11Title:
+                type: string
+                nullable: true
+              diagnosedBy:
+                type: string
+                nullable: true
+              diagnosedDate:
+                type: string
+                format: date-time
+                nullable: true
+        emergencyContacts:
+          type: array
+          items:
+            type: object
+            properties:
+              contactName:
+                type: string
+              relationship:
+                type: string
+                enum: [PARENT, SPOUSE, SIBLING, FRIEND, CAREGIVER, OTHER]
+              phoneNumber:
+                type: string
+              isPrimary:
+                type: boolean
+
+    # ─── Health Journal — Diagnoses for new entry ─────────────────────────────
+
+    JournalDiagnosisOption:
+      type: object
+      properties:
+        diagnosisId:
+          type: string
+          format: uuid
+        icd11Code:
+          type: string
+          nullable: true
+        icd11Title:
+          type: string
+          nullable: true
+        clinicalDescription:
+          type: string
+          nullable: true
+        isChronic:
+          type: boolean
+        diagnosedBy:
+          type: string
+          nullable: true
+        diagnosedDate:
+          type: string
+          format: date-time
+          nullable: true
+
+    ListJournalDiagnosesResponse:
+      type: object
+      properties:
+        diagnoses:
+          type: array
+          items:
+            $ref: '#/components/schemas/JournalDiagnosisOption'
+
+    # ─── Health Journal — Create entry ────────────────────────────────────────
+
+    CreateHealthJournalEntryRequest:
+      type: object
+      required:
+        - diagnosisId
+        - patientOutcome
+        - painLevel
+        - energyLevel
+        - mood
+      properties:
+        diagnosisId:
+          type: string
+          format: uuid
+          maxLength: 64
+          description: ID of an active diagnosis belonging to this patient.
+        patientOutcome:
+          type: string
+          enum: [FULLY_RECOVERED, IMPROVED, NO_CHANGE, WORSE]
+          description: Patient's self-reported overall progress.
+        patientOutcomeDetails:
+          type: string
+          nullable: true
+          description: Free-text elaboration on the outcome (optional).
+        painLevel:
+          type: integer
+          minimum: 0
+          maximum: 10
+          example: 4
+        energyLevel:
+          type: integer
+          minimum: 0
+          maximum: 10
+          example: 6
+        mood:
+          type: string
+          maxLength: 2000
+          example: "Tired after meals but manageable"
+
+    CreatedJournalEntry:
+      type: object
+      properties:
+        noteId:
+          type: string
+          format: uuid
+        patientId:
+          type: string
+          format: uuid
+        diagnosisId:
+          type: string
+          format: uuid
+        noteDate:
+          type: string
+          format: date
+        patientOutcome:
+          type: string
+          nullable: true
+          enum: [FULLY_RECOVERED, IMPROVED, NO_CHANGE, WORSE]
+        patientOutcomeDetails:
+          type: string
+          nullable: true
+        mood:
+          type: string
+          nullable: true
+        painLevel:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 10
+        energyLevel:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 10
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        diagnosis:
+          $ref: '#/components/schemas/JournalDiagnosisOption'
+
+    HealthSnapshot:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [READY, UNAVAILABLE]
+          description: >
+            READY means the AI successfully generated a snapshot.
+            UNAVAILABLE means it failed gracefully — the entry was still saved.
+        model:
+          type: string
+          nullable: true
+          example: "gemini-2.5-flash"
+        urgencyLevel:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, UNKNOWN]
+        summary:
+          type: string
+          nullable: true
+          example: "Your pain levels are elevated compared to your last two entries."
+        advice:
+          type: array
+          items:
+            type: string
+          example: ["Stay hydrated", "Take your medication at the same time each day"]
+        watchouts:
+          type: array
+          items:
+            type: string
+          example: ["Pain above 8 that doesn't subside"]
+        whenToContactDoctor:
+          type: array
+          items:
+            type: string
+          example: ["If your pain level stays above 7 for more than two days"]
+        disclaimer:
+          type: string
+          example: "This snapshot is supportive guidance only and does not replace your clinician."
+        unavailableReason:
+          type: string
+          nullable: true
+          description: >
+            Only present when status is UNAVAILABLE.
+            Human-readable reason shown to the patient explaining why the snapshot could not be generated.
+          example: "The AI health snapshot service is temporarily unavailable."
+
+    CreateHealthJournalEntryResponse:
+      type: object
+      properties:
+        entry:
+          $ref: '#/components/schemas/CreatedJournalEntry'
+        healthSnapshot:
+          $ref: '#/components/schemas/HealthSnapshot'
+
+    # ─── Health Journal — History ─────────────────────────────────────────────
+
+    JournalDiagnosisSummary:
+      type: object
+      properties:
+        diagnosisId:
+          type: string
+          format: uuid
+        icd11Code:
+          type: string
+          nullable: true
+        icd11Title:
+          type: string
+          nullable: true
+          example: "Type 2 diabetes mellitus"
+        isChronic:
+          type: boolean
+        totalEntries:
+          type: integer
+          example: 12
+        lastEntryDate:
+          type: string
+          format: date
+          nullable: true
+        lastEntry:
+          type: object
+          properties:
+            patientOutcome:
+              type: string
+              nullable: true
+              enum: [FULLY_RECOVERED, IMPROVED, NO_CHANGE, WORSE]
+            painLevel:
+              type: integer
+              nullable: true
+              minimum: 0
+              maximum: 10
+            energyLevel:
+              type: integer
+              nullable: true
+              minimum: 0
+              maximum: 10
+            mood:
+              type: string
+              nullable: true
+            createdAt:
+              type: string
+              format: date-time
+              nullable: true
+
+    ListJournalDiagnosesSummaryResponse:
+      type: object
+      properties:
+        diagnoses:
+          type: array
+          description: Only diagnoses that have at least one note, ordered by most recent entry first.
+          items:
+            $ref: '#/components/schemas/JournalDiagnosisSummary'
+
+    JournalNote:
+      type: object
+      properties:
+        noteId:
+          type: string
+          format: uuid
+        noteDate:
+          type: string
+          format: date
+        patientOutcome:
+          type: string
+          nullable: true
+          enum: [FULLY_RECOVERED, IMPROVED, NO_CHANGE, WORSE]
+        patientOutcomeDetails:
+          type: string
+          nullable: true
+        mood:
+          type: string
+          nullable: true
+        painLevel:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 10
+        energyLevel:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 10
+        createdAt:
+          type: string
+          format: date-time
+
+    ListJournalNotesResponse:
+      type: object
+      properties:
+        diagnosis:
+          type: object
+          properties:
+            diagnosisId:
+              type: string
+              format: uuid
+            icd11Code:
+              type: string
+              nullable: true
+            icd11Title:
+              type: string
+              nullable: true
+            isChronic:
+              type: boolean
+            status:
+              type: string
+              nullable: true
+              enum: [ACTIVE, RESOLVED_BY_HCP, RESOLVED_BY_PATIENT]
+        notes:
+          type: array
+          description: All notes for this diagnosis, ordered newest first.
+          items:
+            $ref: '#/components/schemas/JournalNote'
+
+    # ─── Error responses ──────────────────────────────────────────────────────
+
+    ErrorResponse:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+        message:
+          type: string
+        error:
+          type: string
+
+# ─── Security applied globally ────────────────────────────────────────────────
+
+security:
+  - bearerAuth: []
+
+# ─── Paths ────────────────────────────────────────────────────────────────────
+
+paths:
+
+  /medical-identity:
+    get:
+      summary: Get patient medical identity
+      description: >
+        Returns a full medical snapshot of the authenticated patient including
+        basic info, active diagnoses, current medications, allergies, chronic
+        conditions, and emergency contacts.
+      operationId: getMedicalIdentity
+      tags:
+        - Medical Identity
+      responses:
+        '200':
+          description: Medical identity loaded successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MedicalIdentityResponse'
+        '401':
+          description: Missing or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Account is not active or role is not PATIENT.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Patient profile not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /health-journal/diagnoses:
+    get:
+      summary: List active diagnoses for a new journal entry
+      description: >
+        Returns the patient's active diagnoses. Used to populate the diagnosis
+        picker when the patient wants to log a new health journal entry.
+        Each item includes an ID that must be sent back when creating the entry.
+      operationId: listHealthJournalDiagnoses
+      tags:
+        - Health Journal
+      responses:
+        '200':
+          description: Active diagnoses returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListJournalDiagnosesResponse'
+        '401':
+          description: Missing or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Account is not active or role is not PATIENT.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Patient profile not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /health-journal/notes:
+    post:
+      summary: Create a new health journal entry
+      description: >
+        Saves a new health journal note for the authenticated patient under a
+        specific active diagnosis. After saving, the backend calls the Gemini AI
+        to generate a health snapshot with advice tailored to the patient's full
+        medical context. If the AI call fails for any reason (no API key, network
+        issue, unexpected response), the entry is still saved and the response
+        will include a healthSnapshot with status UNAVAILABLE and a human-readable
+        unavailableReason instead of crashing.
+      operationId: createHealthJournalEntry
+      tags:
+        - Health Journal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateHealthJournalEntryRequest'
+            example:
+              diagnosisId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+              patientOutcome: "IMPROVED"
+              patientOutcomeDetails: "Feeling better after adjusting sleep schedule"
+              painLevel: 4
+              energyLevel: 6
+              mood: "Tired after meals but manageable overall"
+      responses:
+        '201':
+          description: Journal entry created. AI snapshot included (may be UNAVAILABLE).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateHealthJournalEntryResponse'
+        '400':
+          description: Validation error — invalid or missing fields in the request body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Account is not active or role is not PATIENT.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Patient profile not found, or the selected diagnosis is not active for this patient.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      summary: List journal history grouped by diagnosis
+      description: >
+        Returns only the diagnoses that the patient has logged at least one note
+        for, ordered by most recent entry first. Each item includes a lastEntry
+        object with the data from the most recent note — the frontend does not
+        need to compute this.
+      operationId: listHealthJournalDiagnosesSummary
+      tags:
+        - Health Journal
+      responses:
+        '200':
+          description: Journal diagnosis summaries returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListJournalDiagnosesSummaryResponse'
+        '401':
+          description: Missing or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Account is not active or role is not PATIENT.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Patient profile not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /health-journal/notes/{diagnosisId}:
+    get:
+      summary: List all notes for a specific diagnosis
+      description: >
+        Returns the diagnosis info and all health journal notes the patient has
+        logged under it, ordered newest first.
+      operationId: listHealthJournalNotes
+      tags:
+        - Health Journal
+      parameters:
+        - name: diagnosisId
+          in: path
+          required: true
+          description: UUID of the diagnosis to retrieve notes for.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Notes returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListJournalNotesResponse'
+        '401':
+          description: Missing or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Account is not active or role is not PATIENT.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Diagnosis not found for this patient.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
