@@ -2,9 +2,10 @@ openapi: 3.0.3
 
 info:
   title: Patient Module API
-  version: 1.0.0
+  version: 2.0.0
   description: >
-    Endpoints for the patient-facing features: medical identity and health journal.
+    Endpoints for the patient-facing features: medical identity, profile picture,
+    emergency contacts, and health journal.
     All endpoints require a valid Bearer access token issued to a PATIENT account.
 
 servers:
@@ -37,6 +38,63 @@ components:
           example: "Type 2 diabetes mellitus"
         isChronic:
           type: boolean
+
+    # ─── Profile Picture ─────────────────────────────────────────────────────
+
+    UploadProfilePictureResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Profile picture uploaded successfully."
+
+    # ─── Emergency Contacts ───────────────────────────────────────────────────
+
+    AddEmergencyContactRequest:
+      type: object
+      required:
+        - contactName
+        - phoneNumber
+        - relationship
+      properties:
+        contactName:
+          type: string
+          maxLength: 200
+          example: "Ahmed Hassan"
+        phoneNumber:
+          type: string
+          maxLength: 20
+          example: "01012345678"
+        relationship:
+          type: string
+          enum: [PARENT, SPOUSE, SIBLING, FRIEND, CAREGIVER, OTHER]
+        isPrimary:
+          type: boolean
+          default: false
+          description: >
+            If true, any existing primary contact will be demoted automatically.
+
+    EmergencyContactResponse:
+      type: object
+      properties:
+        contact:
+          type: object
+          properties:
+            contact_id:
+              type: string
+              format: uuid
+            contact_name:
+              type: string
+            phone_number:
+              type: string
+            relationship:
+              type: string
+              enum: [PARENT, SPOUSE, SIBLING, FRIEND, CAREGIVER, OTHER]
+            is_primary:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
 
     # ─── Medical Identity ─────────────────────────────────────────────────────
 
@@ -496,6 +554,229 @@ security:
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
 paths:
+
+  /profile-picture:
+    post:
+      summary: Upload or replace profile picture
+      description: >
+        Uploads a profile picture for the authenticated patient. The file is
+        stored in the uploads/identity folder. If a picture already exists,
+        uploading again replaces it — the GET endpoint always serves the
+        most recently uploaded one.
+      operationId: uploadProfilePicture
+      tags:
+        - Profile Picture
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - profilePicture
+              properties:
+                profilePicture:
+                  type: string
+                  format: binary
+                  description: >
+                    Image file. Accepted types: JPEG, PNG, WEBP, HEIC, HEIF.
+                    Max size: 5 MB.
+      responses:
+        '201':
+          description: Profile picture uploaded successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadProfilePictureResponse'
+        '400':
+          description: No file uploaded or unsupported file type.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Account is not active or role is not PATIENT.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Patient profile not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      summary: Get profile picture
+      description: >
+        Streams the patient's profile picture directly as an image file.
+        Returns 404 if no picture has been uploaded yet.
+      operationId: getProfilePicture
+      tags:
+        - Profile Picture
+      responses:
+        '200':
+          description: Profile picture streamed successfully.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Missing or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Account is not active or role is not PATIENT.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No profile picture set, or file missing on disk.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /emergency-contacts:
+    post:
+      summary: Add an emergency contact
+      description: >
+        Adds a new emergency contact for the authenticated patient.
+        If isPrimary is true, any previously marked primary contact is
+        automatically demoted — only one primary is allowed at a time.
+      operationId: addEmergencyContact
+      tags:
+        - Emergency Contacts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddEmergencyContactRequest'
+            example:
+              contactName: "Ahmed Hassan"
+              phoneNumber: "01012345678"
+              relationship: "SPOUSE"
+              isPrimary: true
+      responses:
+        '201':
+          description: Emergency contact added successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmergencyContactResponse'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Account is not active or role is not PATIENT.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Patient profile not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /emergency-contacts/{contactId}:
+    delete:
+      summary: Remove an emergency contact
+      description: Removes the specified emergency contact from the patient's profile.
+      operationId: removeEmergencyContact
+      tags:
+        - Emergency Contacts
+      parameters:
+        - name: contactId
+          in: path
+          required: true
+          description: UUID of the emergency contact to remove.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Emergency contact removed successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Emergency contact removed."
+        '401':
+          description: Missing or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Account is not active or role is not PATIENT.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Contact not found or does not belong to this patient.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /medical-identity:
     get:
