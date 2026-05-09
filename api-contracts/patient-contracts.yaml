@@ -19,7 +19,6 @@ components:
       bearerFormat: JWT
 
   schemas:
-
     # ─── Shared primitives ────────────────────────────────────────────────────
 
     Diagnosis:
@@ -113,7 +112,8 @@ components:
             bloodType:
               type: string
               nullable: true
-              enum: ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "UNKNOWN"]
+              enum:
+                ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "UNKNOWN"]
             weightKg:
               type: integer
               nullable: true
@@ -163,11 +163,35 @@ components:
               dosageUnit:
                 type: string
                 nullable: true
-                enum: [MG, MCG, G, ML, IU, UNITS, DROPS, PUFFS, TABLETS, CAPSULES, TEASPOONS]
+                enum:
+                  [
+                    MG,
+                    MCG,
+                    G,
+                    ML,
+                    IU,
+                    UNITS,
+                    DROPS,
+                    PUFFS,
+                    TABLETS,
+                    CAPSULES,
+                    TEASPOONS,
+                  ]
               form:
                 type: string
                 nullable: true
-                enum: [TABLET, CAPSULE, LIQUID, INJECTION, TOPICAL, INHALER, DROPS, PATCH, OTHER]
+                enum:
+                  [
+                    TABLET,
+                    CAPSULE,
+                    LIQUID,
+                    INJECTION,
+                    TOPICAL,
+                    INHALER,
+                    DROPS,
+                    PATCH,
+                    OTHER,
+                  ]
               frequency:
                 type: string
                 nullable: true
@@ -277,7 +301,7 @@ components:
         diagnoses:
           type: array
           items:
-            $ref: '#/components/schemas/JournalDiagnosisOption'
+            $ref: "#/components/schemas/JournalDiagnosisOption"
 
     # ─── Health Journal — Create entry ────────────────────────────────────────
 
@@ -360,7 +384,7 @@ components:
           type: string
           format: date-time
         diagnosis:
-          $ref: '#/components/schemas/JournalDiagnosisOption'
+          $ref: "#/components/schemas/JournalDiagnosisOption"
 
     HealthSnapshot:
       type: object
@@ -386,7 +410,8 @@ components:
           type: array
           items:
             type: string
-          example: ["Stay hydrated", "Take your medication at the same time each day"]
+          example:
+            ["Stay hydrated", "Take your medication at the same time each day"]
         watchouts:
           type: array
           items:
@@ -412,9 +437,9 @@ components:
       type: object
       properties:
         entry:
-          $ref: '#/components/schemas/CreatedJournalEntry'
+          $ref: "#/components/schemas/CreatedJournalEntry"
         healthSnapshot:
-          $ref: '#/components/schemas/HealthSnapshot'
+          $ref: "#/components/schemas/HealthSnapshot"
 
     # ─── Health Journal — History ─────────────────────────────────────────────
 
@@ -472,7 +497,7 @@ components:
           type: array
           description: Only diagnoses that have at least one note, ordered by most recent entry first.
           items:
-            $ref: '#/components/schemas/JournalDiagnosisSummary'
+            $ref: "#/components/schemas/JournalDiagnosisSummary"
 
     JournalNote:
       type: object
@@ -532,7 +557,137 @@ components:
           type: array
           description: All notes for this diagnosis, ordered newest first.
           items:
-            $ref: '#/components/schemas/JournalNote'
+            $ref: "#/components/schemas/JournalNote"
+
+    # ─── Medical History ──────────────────────────────────────────────────────
+
+    MedicalHistoryEncounterSummary:
+      type: object
+      properties:
+        encounterId:
+          type: string
+          format: uuid
+        doctorName:
+          type: string
+          nullable: true
+        doctorSpeciality:
+          type: string
+          nullable: true
+        encounterDate:
+          type: string
+          format: date-time
+          nullable: true
+        location:
+          type: string
+          nullable: true
+        primaryDiagnosis:
+          nullable: true
+          type: object
+          properties:
+            icd11Code:
+              type: string
+              nullable: true
+            icd11Title:
+              type: string
+              nullable: true
+
+    ListMedicalHistoryResponse:
+      type: object
+      properties:
+        encounters:
+          type: array
+          items:
+            $ref: "#/components/schemas/MedicalHistoryEncounterSummary"
+
+    MedicalHistoryEncounterDetailResponse:
+      type: object
+      properties:
+        encounter:
+          allOf:
+            - $ref: "#/components/schemas/MedicalHistoryEncounterSummary"
+            - type: object
+              properties:
+                symptomsAndComplaints:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      title:
+                        type: string
+                      description:
+                        type: string
+                        nullable: true
+                diagnoses:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      icd11Code:
+                        type: string
+                        nullable: true
+                      icd11Title:
+                        type: string
+                        nullable: true
+                      clinicalDescription:
+                        type: string
+                        nullable: true
+                prescribedMedications:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      medicationName:
+                        type: string
+                        nullable: true
+                      dosageAmount:
+                        type: number
+                        nullable: true
+                      dosageUnit:
+                        type: string
+                        nullable: true
+                        enum:
+                          [
+                            MG,
+                            MCG,
+                            G,
+                            ML,
+                            IU,
+                            UNITS,
+                            DROPS,
+                            PUFFS,
+                            TABLETS,
+                            CAPSULES,
+                            TEASPOONS,
+                          ]
+                      form:
+                        type: string
+                        nullable: true
+                        enum:
+                          [
+                            TABLET,
+                            CAPSULE,
+                            LIQUID,
+                            INJECTION,
+                            TOPICAL,
+                            INHALER,
+                            DROPS,
+                            PATCH,
+                            OTHER,
+                          ]
+                      frequency:
+                        type: string
+                        nullable: true
+                      instructions:
+                        type: string
+                        nullable: true
+                      startDate:
+                        type: string
+                        format: date
+                        nullable: true
+                      endDate:
+                        type: string
+                        format: date
+                        nullable: true
 
     # ─── Error responses ──────────────────────────────────────────────────────
 
@@ -554,7 +709,6 @@ security:
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
 paths:
-
   /profile-picture:
     post:
       summary: Upload or replace profile picture
@@ -582,42 +736,42 @@ paths:
                     Image file. Accepted types: JPEG, PNG, WEBP, HEIC, HEIF.
                     Max size: 5 MB.
       responses:
-        '201':
+        "201":
           description: Profile picture uploaded successfully.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UploadProfilePictureResponse'
-        '400':
+                $ref: "#/components/schemas/UploadProfilePictureResponse"
+        "400":
           description: No file uploaded or unsupported file type.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '401':
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
           description: Missing or invalid access token.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
           description: Account is not active or role is not PATIENT.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
           description: Patient profile not found.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
           description: Unexpected server error.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
     get:
       summary: Get profile picture
@@ -628,7 +782,7 @@ paths:
       tags:
         - Profile Picture
       responses:
-        '200':
+        "200":
           description: Profile picture streamed successfully.
           content:
             image/jpeg:
@@ -643,30 +797,30 @@ paths:
               schema:
                 type: string
                 format: binary
-        '401':
+        "401":
           description: Missing or invalid access token.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
           description: Account is not active or role is not PATIENT.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
           description: No profile picture set, or file missing on disk.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
           description: Unexpected server error.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
   /emergency-contacts:
     post:
@@ -683,49 +837,49 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AddEmergencyContactRequest'
+              $ref: "#/components/schemas/AddEmergencyContactRequest"
             example:
               contactName: "Ahmed Hassan"
               phoneNumber: "01012345678"
               relationship: "SPOUSE"
               isPrimary: true
       responses:
-        '201':
+        "201":
           description: Emergency contact added successfully.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EmergencyContactResponse'
-        '400':
+                $ref: "#/components/schemas/EmergencyContactResponse"
+        "400":
           description: Validation error.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '401':
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
           description: Missing or invalid access token.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
           description: Account is not active or role is not PATIENT.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
           description: Patient profile not found.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
           description: Unexpected server error.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
   /emergency-contacts/{contactId}:
     delete:
@@ -743,7 +897,7 @@ paths:
             type: string
             format: uuid
       responses:
-        '200':
+        "200":
           description: Emergency contact removed successfully.
           content:
             application/json:
@@ -753,30 +907,30 @@ paths:
                   message:
                     type: string
                     example: "Emergency contact removed."
-        '401':
+        "401":
           description: Missing or invalid access token.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
           description: Account is not active or role is not PATIENT.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
           description: Contact not found or does not belong to this patient.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
           description: Unexpected server error.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
   /medical-identity:
     get:
@@ -789,36 +943,36 @@ paths:
       tags:
         - Medical Identity
       responses:
-        '200':
+        "200":
           description: Medical identity loaded successfully.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MedicalIdentityResponse'
-        '401':
+                $ref: "#/components/schemas/MedicalIdentityResponse"
+        "401":
           description: Missing or invalid access token.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
           description: Account is not active or role is not PATIENT.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
           description: Patient profile not found.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
           description: Unexpected server error.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
   /health-journal/diagnoses:
     get:
@@ -831,36 +985,36 @@ paths:
       tags:
         - Health Journal
       responses:
-        '200':
+        "200":
           description: Active diagnoses returned successfully.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ListJournalDiagnosesResponse'
-        '401':
+                $ref: "#/components/schemas/ListJournalDiagnosesResponse"
+        "401":
           description: Missing or invalid access token.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
           description: Account is not active or role is not PATIENT.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
           description: Patient profile not found.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
           description: Unexpected server error.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
   /health-journal/notes:
     post:
@@ -881,7 +1035,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateHealthJournalEntryRequest'
+              $ref: "#/components/schemas/CreateHealthJournalEntryRequest"
             example:
               diagnosisId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
               patientOutcome: "IMPROVED"
@@ -890,42 +1044,42 @@ paths:
               energyLevel: 6
               mood: "Tired after meals but manageable overall"
       responses:
-        '201':
+        "201":
           description: Journal entry created. AI snapshot included (may be UNAVAILABLE).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreateHealthJournalEntryResponse'
-        '400':
+                $ref: "#/components/schemas/CreateHealthJournalEntryResponse"
+        "400":
           description: Validation error — invalid or missing fields in the request body.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '401':
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
           description: Missing or invalid access token.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
           description: Account is not active or role is not PATIENT.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
           description: Patient profile not found, or the selected diagnosis is not active for this patient.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
           description: Unexpected server error.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
     get:
       summary: List journal history grouped by diagnosis
@@ -938,36 +1092,36 @@ paths:
       tags:
         - Health Journal
       responses:
-        '200':
+        "200":
           description: Journal diagnosis summaries returned successfully.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ListJournalDiagnosesSummaryResponse'
-        '401':
+                $ref: "#/components/schemas/ListJournalDiagnosesSummaryResponse"
+        "401":
           description: Missing or invalid access token.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
           description: Account is not active or role is not PATIENT.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
           description: Patient profile not found.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
           description: Unexpected server error.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
   /health-journal/notes/{diagnosisId}:
     get:
@@ -987,33 +1141,125 @@ paths:
             type: string
             format: uuid
       responses:
-        '200':
+        "200":
           description: Notes returned successfully.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ListJournalNotesResponse'
-        '401':
+                $ref: "#/components/schemas/ListJournalNotesResponse"
+        "401":
           description: Missing or invalid access token.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
           description: Account is not active or role is not PATIENT.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
           description: Diagnosis not found for this patient.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
           description: Unexpected server error.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /medical-history:
+    get:
+      summary: List medical history encounters
+      description: >
+        Returns a summarised list of all the patient's past encounters, ordered
+        by most recent first. Each item includes the doctor name, speciality,
+        encounter date, location, and the primary diagnosis of that visit.
+      operationId: listMedicalHistory
+      tags:
+        - Medical History
+      responses:
+        "200":
+          description: Medical history encounters returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListMedicalHistoryResponse"
+        "401":
+          description: Missing or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Account is not active or role is not PATIENT.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Patient profile not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /medical-history/{encounterId}:
+    get:
+      summary: Get a single medical history encounter
+      description: >
+        Returns the full detail of a specific past encounter: symptoms and
+        complaints, all diagnoses made during that visit, and every medication
+        prescribed at the time.
+      operationId: getMedicalHistoryEncounter
+      tags:
+        - Medical History
+      parameters:
+        - name: encounterId
+          in: path
+          required: true
+          description: UUID of the encounter to retrieve.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Encounter detail returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MedicalHistoryEncounterDetailResponse"
+        "401":
+          description: Missing or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Account is not active or role is not PATIENT.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Encounter not found or does not belong to this patient.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"

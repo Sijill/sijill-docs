@@ -1,0 +1,361 @@
+openapi: 3.0.3
+info:
+  title: Sijill Patient Reminder & Notification API
+  version: 1.0.0
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/v1/patient/reminders:
+    get:
+      summary: List active patient reminders
+      tags: [Patient Reminders]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Active reminders grouped by type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReminderListResponse"
+
+  /api/v1/patient/reminders/active:
+    get:
+      summary: List active patient reminders
+      description: Alias of GET /api/v1/patient/reminders
+      tags: [Patient Reminders]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Active reminders grouped by type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReminderListResponse"
+
+  /api/v1/patient/reminders/{reminderId}:
+    patch:
+      summary: Update a patient reminder
+      tags: [Patient Reminders]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: reminderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateReminderRequest"
+            examples:
+              medicationTime:
+                value:
+                  reminderTime: "07:30"
+                  customDays: [1, 3, 5]
+              dismissMedicalOrder:
+                value:
+                  isActive: false
+      responses:
+        "200":
+          description: Updated reminder
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reminder:
+                    $ref: "#/components/schemas/Reminder"
+        "400":
+          description: Invalid update or unsupported reminder type
+        "404":
+          description: Reminder not found
+
+  /api/v1/patient/notifications:
+    get:
+      summary: List all patient notifications
+      tags: [Patient Notifications]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Notification inbox
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notifications:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Notification"
+
+  /api/v1/patient/notifications/pending:
+    get:
+      summary: Consume due pending notifications
+      description: Returns notifications where scheduledFor is due and marks them SENT.
+      tags: [Patient Notifications]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Due notifications consumed by the app
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notifications:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Notification"
+
+  /api/v1/patient/notifications/{notificationId}/read:
+    patch:
+      summary: Mark notification as read
+      tags: [Patient Notifications]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Updated notification
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notification:
+                    $ref: "#/components/schemas/Notification"
+        "404":
+          description: Notification not found
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    ReminderListResponse:
+      type: object
+      properties:
+        reminders:
+          type: array
+          items:
+            $ref: "#/components/schemas/Reminder"
+        grouped:
+          type: object
+          properties:
+            appointments:
+              type: array
+              items:
+                $ref: "#/components/schemas/Reminder"
+            medications:
+              type: array
+              items:
+                $ref: "#/components/schemas/Reminder"
+            medicalOrders:
+              type: array
+              items:
+                $ref: "#/components/schemas/Reminder"
+
+    Reminder:
+      type: object
+      properties:
+        reminderId:
+          type: string
+          format: uuid
+        reminderType:
+          type: string
+          enum: [MEDICATION, APPOINTMENT, MEDICAL_ORDER]
+        startsAt:
+          type: string
+          nullable: true
+        endsAt:
+          type: string
+          nullable: true
+        appointmentAt:
+          type: string
+          format: date-time
+          nullable: true
+        reminderTime:
+          type: string
+          example: "09:00:00"
+        customDays:
+          type: array
+          nullable: true
+          items:
+            type: integer
+            minimum: 1
+            maximum: 7
+        isActive:
+          type: boolean
+        dismissedAt:
+          type: string
+          format: date-time
+          nullable: true
+        medication:
+          $ref: "#/components/schemas/MedicationReminder"
+        appointment:
+          $ref: "#/components/schemas/AppointmentReminder"
+        medicalOrder:
+          $ref: "#/components/schemas/MedicalOrderReminder"
+
+    MedicationReminder:
+      type: object
+      nullable: true
+      properties:
+        medicationId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        dosageAmount:
+          type: number
+          nullable: true
+        dosageUnit:
+          type: string
+          nullable: true
+        form:
+          type: string
+          nullable: true
+        frequency:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          nullable: true
+        endDate:
+          type: string
+          nullable: true
+        prescribedBy:
+          type: string
+          nullable: true
+
+    AppointmentReminder:
+      type: object
+      nullable: true
+      properties:
+        encounterId:
+          type: string
+          format: uuid
+        doctorName:
+          type: string
+          nullable: true
+        location:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+
+    MedicalOrderReminder:
+      type: object
+      nullable: true
+      properties:
+        medicalOrderId:
+          type: string
+          format: uuid
+        orderType:
+          type: string
+          enum: [LABORATORY, IMAGING]
+        orderName:
+          type: string
+          nullable: true
+        priority:
+          type: string
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        orderedAt:
+          type: string
+          format: date-time
+          nullable: true
+        orderedBy:
+          type: string
+          nullable: true
+        specimenType:
+          type: string
+          nullable: true
+        bodyPart:
+          type: string
+          nullable: true
+
+    UpdateReminderRequest:
+      type: object
+      properties:
+        reminderTime:
+          type: string
+          example: "07:30"
+        reminder_time:
+          type: string
+          example: "07:30"
+        customDays:
+          type: array
+          nullable: true
+          items:
+            type: integer
+            minimum: 1
+            maximum: 7
+        custom_days:
+          type: array
+          nullable: true
+          items:
+            type: integer
+            minimum: 1
+            maximum: 7
+        isActive:
+          type: boolean
+        is_active:
+          type: boolean
+
+    Notification:
+      type: object
+      properties:
+        notificationId:
+          type: string
+          format: uuid
+        notificationType:
+          type: string
+          enum: [SYSTEM, REMINDER]
+        status:
+          type: string
+          enum: [PENDING, SENT, READ]
+        title:
+          type: string
+        message:
+          type: string
+        reminderId:
+          type: string
+          format: uuid
+          nullable: true
+        scheduledFor:
+          type: string
+          format: date-time
+        sentAt:
+          type: string
+          format: date-time
+          nullable: true
+        readAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
