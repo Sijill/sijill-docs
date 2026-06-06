@@ -11,6 +11,8 @@ servers:
 tags:
   - name: permission-tokens
     description: Patient permission token generation and management
+  - name: medical-orders
+    description: Patient medical order listing and order-scoped permission token generation
   - name: clinical-sessions
     description: HCP token redemption and patient access sessions
   - name: medical-identity
@@ -19,6 +21,10 @@ tags:
     description: Patient historical encounter records
   - name: encounters
     description: New clinical encounter documentation by HCP
+  - name: lab-sessions
+    description: Lab token redemption, order view, and result upload
+  - name: imaging-sessions
+    description: Imaging center token redemption, order view, and result upload
 
 # -------------------------------------------------------
 # PATHS
@@ -150,6 +156,191 @@ paths:
                 $ref: "#/components/schemas/ForbiddenError"
         "404":
           description: Token not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # -------------------------------------------------------
+  # MEDICAL ORDERS (Patient side)
+  # -------------------------------------------------------
+
+  /clinical/medical-orders/lab:
+    get:
+      tags:
+        - medical-orders
+      summary: List patient's active lab orders
+      description: |
+        **Role required: PATIENT**
+
+        Returns all pending or in-progress laboratory orders belonging to
+        the authenticated patient. Completed and cancelled orders are not
+        included.
+
+        This list is what the patient uses to decide which lab order to
+        grant a lab access to, before generating an order-scoped permission
+        token.
+      operationId: listActiveLabOrders
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Active lab orders returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActiveLabOrdersResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /clinical/medical-orders/imaging:
+    get:
+      tags:
+        - medical-orders
+      summary: List patient's active imaging orders
+      description: |
+        **Role required: PATIENT**
+
+        Returns all pending or in-progress imaging orders belonging to
+        the authenticated patient. Completed and cancelled orders are not
+        included.
+
+        This list is what the patient uses to decide which imaging order to
+        grant an imaging center access to, before generating an order-scoped
+        permission token.
+      operationId: listActiveImagingOrders
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Active imaging orders returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActiveImagingOrdersResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /clinical/medical-orders/{orderId}/permission-tokens/lab:
+    post:
+      tags:
+        - medical-orders
+      summary: Generate a lab permission token for a specific order
+      description: |
+        **Role required: PATIENT**
+
+        Generates a 6-digit code that grants a `LAB` entity access to a
+        specific, single lab order. The access type is always `READ_WRITE`
+        (the lab can view the order details and upload results).
+
+        The token expires in 60 minutes and is order-scoped — the lab can
+        only see and act on the order referenced by `orderId`.
+
+        Tokens can only be generated for orders that are currently
+        `PENDING` or `IN_PROGRESS`. Attempting to generate a token for a
+        `COMPLETED` or `CANCELLED` order will return a 403.
+
+        The 6-digit code is returned in plaintext **once** and cannot
+        be retrieved again.
+      operationId: generateLabOrderPermissionToken
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The ID of the lab order to grant access to
+      responses:
+        "201":
+          description: Lab permission token generated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosticPermissionTokenResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            Forbidden. Possible reasons:
+            - Order is already completed or cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForbiddenError"
+        "404":
+          description: Lab order not found for this patient
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /clinical/medical-orders/{orderId}/permission-tokens/imaging:
+    post:
+      tags:
+        - medical-orders
+      summary: Generate an imaging permission token for a specific order
+      description: |
+        **Role required: PATIENT**
+
+        Generates a 6-digit code that grants an `IMAGING_CENTER` entity
+        access to a specific, single imaging order. The access type is
+        always `READ_WRITE` (the center can view the order details and
+        upload results).
+
+        The token expires in 60 minutes and is order-scoped — the imaging
+        center can only see and act on the order referenced by `orderId`.
+
+        Tokens can only be generated for orders that are currently
+        `PENDING` or `IN_PROGRESS`. Attempting to generate a token for a
+        `COMPLETED` or `CANCELLED` order will return a 403.
+
+        The 6-digit code is returned in plaintext **once** and cannot
+        be retrieved again.
+      operationId: generateImagingOrderPermissionToken
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The ID of the imaging order to grant access to
+      responses:
+        "201":
+          description: Imaging permission token generated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosticPermissionTokenResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            Forbidden. Possible reasons:
+            - Order is already completed or cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForbiddenError"
+        "404":
+          description: Imaging order not found for this patient
           content:
             application/json:
               schema:
@@ -536,6 +727,352 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+  # -------------------------------------------------------
+  # LAB SESSIONS (Lab side — token redemption and result upload)
+  # -------------------------------------------------------
+
+  /diagnostic/lab/sessions:
+    post:
+      tags:
+        - lab-sessions
+      summary: Start a lab session using a lab permission token
+      description: |
+        **Role required: LAB**
+
+        The lab submits the 6-digit code provided by the patient for a
+        specific lab order. If the code is valid, active, and scoped to
+        a `LAB` entity type, the server:
+
+        1. Validates the token (not expired, not revoked, correct entity type)
+        2. Creates a session record
+        3. Returns a `labSessionToken` — a short-lived JWT that the lab uses
+           as the Bearer token for all subsequent diagnostic lab endpoints
+           in this session.
+
+        The session is order-scoped: it grants access to one specific
+        lab order only.
+
+        **Note:** The lab's regular JWT is used to authenticate this request,
+        but the returned `labSessionToken` replaces it for all
+        `/diagnostic/lab/sessions/{sessionId}/*` endpoints.
+      operationId: startLabSession
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartSessionDto"
+      responses:
+        "201":
+          description: Lab session started successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartLabSessionResponse"
+        "400":
+          description: |
+            Bad Request. Possible reasons:
+            - Code format is invalid (must be 6 digits)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            Forbidden. Possible reasons:
+            - Token is expired
+            - Token has been revoked
+            - Token entity type does not match LAB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForbiddenError"
+        "404":
+          description: No active token found matching this code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /diagnostic/lab/sessions/{sessionId}/order-view:
+    get:
+      tags:
+        - lab-sessions
+      summary: Get lab order details and patient medical identity
+      description: |
+        **Auth: Lab Session Token (Bearer)**
+
+        Returns the full details of the lab order associated with this
+        session, alongside the patient's medical identity (allergies,
+        chronic conditions, active medications, etc.) to give the lab
+        the clinical context they need to process the order.
+
+        This is the primary screen the lab sees after starting a session.
+      operationId: getLabOrderView
+      security:
+        - LabSessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/DiagnosticSessionId"
+      responses:
+        "200":
+          description: Lab order view returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LabOrderViewResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Session or lab order not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /diagnostic/lab/sessions/{sessionId}/results:
+    post:
+      tags:
+        - lab-sessions
+      summary: Upload lab results for the session's order
+      description: |
+        **Auth: Lab Session Token (Bearer)**
+
+        Submits the structured result data and one or more result document
+        files for the lab order associated with this session.
+
+        - `resultData` is a JSON object containing the structured test results
+          (e.g. individual test values). It must be sent as a JSON string in the
+          multipart form field.
+        - `additionalNotes` is an optional plain-text comment.
+        - Up to 10 files can be attached. Accepted file types follow the
+          platform's standard allowed MIME types (PDF, common image formats).
+
+        Submitting results marks the order as `COMPLETED` and triggers a
+        notification to the patient.
+      operationId: uploadLabResults
+      security:
+        - LabSessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/DiagnosticSessionId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/UploadLabResultDto"
+      responses:
+        "200":
+          description: Lab results submitted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadLabResultResponse"
+        "400":
+          description: |
+            Bad Request. Possible reasons:
+            - No files uploaded
+            - `resultData` is not valid JSON
+            - `resultData` is not a JSON object or array
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Session or lab order not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # -------------------------------------------------------
+  # IMAGING SESSIONS (Imaging center side — token redemption and result upload)
+  # -------------------------------------------------------
+
+  /diagnostic/imaging/sessions:
+    post:
+      tags:
+        - imaging-sessions
+      summary: Start an imaging session using an imaging permission token
+      description: |
+        **Role required: IMAGING_CENTER**
+
+        The imaging center submits the 6-digit code provided by the patient
+        for a specific imaging order. If the code is valid, active, and
+        scoped to an `IMAGING_CENTER` entity type, the server:
+
+        1. Validates the token (not expired, not revoked, correct entity type)
+        2. Creates a session record
+        3. Returns an `imagingSessionToken` — a short-lived JWT that the
+           imaging center uses as the Bearer token for all subsequent
+           diagnostic imaging endpoints in this session.
+
+        The session is order-scoped: it grants access to one specific
+        imaging order only.
+
+        **Note:** The imaging center's regular JWT is used to authenticate
+        this request, but the returned `imagingSessionToken` replaces it for
+        all `/diagnostic/imaging/sessions/{sessionId}/*` endpoints.
+      operationId: startImagingSession
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartSessionDto"
+      responses:
+        "201":
+          description: Imaging session started successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartImagingSessionResponse"
+        "400":
+          description: |
+            Bad Request. Possible reasons:
+            - Code format is invalid (must be 6 digits)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            Forbidden. Possible reasons:
+            - Token is expired
+            - Token has been revoked
+            - Token entity type does not match IMAGING_CENTER
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForbiddenError"
+        "404":
+          description: No active token found matching this code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /diagnostic/imaging/sessions/{sessionId}/order-view:
+    get:
+      tags:
+        - imaging-sessions
+      summary: Get imaging order details and patient medical identity
+      description: |
+        **Auth: Imaging Session Token (Bearer)**
+
+        Returns the full details of the imaging order associated with this
+        session, alongside the patient's medical identity (allergies,
+        chronic conditions, active medications, etc.) to give the imaging
+        center the clinical context they need to perform the study.
+
+        This is the primary screen the imaging center sees after starting
+        a session.
+      operationId: getImagingOrderView
+      security:
+        - ImagingSessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/DiagnosticSessionId"
+      responses:
+        "200":
+          description: Imaging order view returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImagingOrderViewResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Session or imaging order not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /diagnostic/imaging/sessions/{sessionId}/results:
+    post:
+      tags:
+        - imaging-sessions
+      summary: Upload imaging results for the session's order
+      description: |
+        **Auth: Imaging Session Token (Bearer)**
+
+        Submits imaging study results — including an optional study
+        description and findings — along with one or more result files
+        for the imaging order associated with this session.
+
+        - `studyDescription` is an optional summary of the study performed.
+        - `findings` is an optional radiologist narrative of the findings.
+        - Up to 10 files can be attached. In addition to the platform's
+          standard file types, DICOM files (`.dcm`, `application/dicom`,
+          `application/dicom+json`) are also accepted. Maximum file size
+          is 50 MB per file.
+
+        Submitting results marks the order as `COMPLETED` and triggers a
+        notification to the patient.
+      operationId: uploadImagingResults
+      security:
+        - ImagingSessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/DiagnosticSessionId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/UploadImagingResultDto"
+      responses:
+        "200":
+          description: Imaging results submitted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadImagingResultResponse"
+        "400":
+          description: |
+            Bad Request. Possible reasons:
+            - No files uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadRequestError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Session or imaging order not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotFoundError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
 # -------------------------------------------------------
 # COMPONENTS
 # -------------------------------------------------------
@@ -549,6 +1086,15 @@ components:
         type: string
         format: uuid
       description: The clinical session ID returned from POST /clinical/sessions
+
+    DiagnosticSessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: The diagnostic session ID returned from POST /diagnostic/lab/sessions or POST /diagnostic/imaging/sessions
 
   responses:
     Unauthorized:
@@ -880,6 +1426,55 @@ components:
           type: string
           example: "Anaphylactic reaction with hives and throat swelling"
 
+    UploadLabResultDto:
+      type: object
+      required:
+        - resultData
+        - labResult
+      properties:
+        resultData:
+          type: string
+          description: |
+            Structured lab result data serialized as a JSON string.
+            Must be a valid JSON object or array (e.g. individual test values).
+          example: '{"haemoglobin":"13.5 g/dL","WBC":"7.2 x10^9/L"}'
+        additionalNotes:
+          type: string
+          description: Optional plain-text comment from the lab
+          example: "All values within normal range"
+        labResult:
+          type: array
+          description: |
+            One or more result document files (PDF, images).
+            Up to 10 files allowed.
+          items:
+            type: string
+            format: binary
+
+    UploadImagingResultDto:
+      type: object
+      required:
+        - imagingResult
+      properties:
+        studyDescription:
+          type: string
+          description: Optional summary of the imaging study performed
+          example: "Chest MRI without contrast"
+        findings:
+          type: string
+          description: Optional radiologist narrative of the findings
+          example: "No significant abnormalities detected"
+        imagingResult:
+          type: array
+          description: |
+            One or more result files. Accepted types include standard
+            image formats, PDF, and DICOM (.dcm, application/dicom,
+            application/dicom+json). Maximum 50 MB per file. Up to 10
+            files allowed.
+          items:
+            type: string
+            format: binary
+
     # -------------------------------------------------------
     # RESPONSE SCHEMAS
     # -------------------------------------------------------
@@ -908,6 +1503,39 @@ components:
           type: string
           format: date-time
           example: "2026-04-18T11:30:00.000Z"
+
+    DiagnosticPermissionTokenResponse:
+      type: object
+      description: |
+        Returned when generating an order-scoped permission token for a
+        lab or imaging center. The code is shown once and cannot be
+        retrieved again.
+      properties:
+        tokenId:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        code:
+          type: string
+          description: The 6-digit code to give to the lab or imaging center. Shown once only.
+          example: "837261"
+        entityType:
+          type: string
+          enum: [LAB, IMAGING_CENTER]
+          example: LAB
+        accessType:
+          type: string
+          enum: [READ_WRITE]
+          example: READ_WRITE
+        expiresAt:
+          type: string
+          format: date-time
+          example: "2026-04-18T12:00:00.000Z"
+        medicalOrderId:
+          type: string
+          format: uuid
+          description: The order this token is scoped to
+          example: "aabbccdd-e89b-12d3-a456-426614174000"
 
     ActivePermissionTokensResponse:
       type: object
@@ -961,6 +1589,117 @@ components:
           format: date-time
           example: "2026-04-18T11:05:00.000Z"
 
+    ActiveLabOrdersResponse:
+      type: object
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActiveLabOrderSummary"
+
+    ActiveLabOrderSummary:
+      type: object
+      properties:
+        orderId:
+          type: string
+          format: uuid
+          example: "aabbccdd-e89b-12d3-a456-426614174000"
+        orderType:
+          type: string
+          enum: [LABORATORY]
+          example: LABORATORY
+        orderStatus:
+          type: string
+          enum: [PENDING, IN_PROGRESS]
+          example: PENDING
+        orderedAt:
+          type: string
+          format: date-time
+          example: "2026-04-18T09:30:00.000Z"
+        orderedBy:
+          type: string
+          description: Full name of the HCP who placed the order
+          example: "Dr. Khaled Mostafa"
+        orderedBySpecialization:
+          type: string
+          example: "Pulmonology"
+        labOrder:
+          type: object
+          properties:
+            testType:
+              type: string
+              example: "COMPLETE_BLOOD_COUNT"
+            specimenType:
+              type: string
+              nullable: true
+              example: "BLOOD"
+            priority:
+              type: string
+              enum: [ROUTINE, URGENT, STAT]
+              example: ROUTINE
+            fastingRequired:
+              type: boolean
+              example: false
+            clinicalIndication:
+              type: string
+              nullable: true
+              example: "Rule out anaemia"
+
+    ActiveImagingOrdersResponse:
+      type: object
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActiveImagingOrderSummary"
+
+    ActiveImagingOrderSummary:
+      type: object
+      properties:
+        orderId:
+          type: string
+          format: uuid
+          example: "aabbccdd-e89b-12d3-a456-426614174001"
+        orderType:
+          type: string
+          enum: [IMAGING]
+          example: IMAGING
+        orderStatus:
+          type: string
+          enum: [PENDING, IN_PROGRESS]
+          example: PENDING
+        orderedAt:
+          type: string
+          format: date-time
+          example: "2026-04-18T09:30:00.000Z"
+        orderedBy:
+          type: string
+          description: Full name of the HCP who placed the order
+          example: "Dr. Khaled Mostafa"
+        orderedBySpecialization:
+          type: string
+          example: "Pulmonology"
+        imagingOrder:
+          type: object
+          properties:
+            imagingType:
+              type: string
+              example: "MRI"
+            bodyPart:
+              type: string
+              example: "CHEST"
+            priority:
+              type: string
+              enum: [ROUTINE, URGENT, STAT]
+              example: ROUTINE
+            contrastUsed:
+              type: boolean
+              example: false
+            clinicalIndication:
+              type: string
+              nullable: true
+              example: "Evaluate lung hyperinflation"
+
     StartSessionResponse:
       type: object
       properties:
@@ -1003,6 +1742,227 @@ components:
               type: integer
               description: Calculated from date_of_birth
               example: 34
+
+    StartLabSessionResponse:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+          description: Used as the {sessionId} path parameter in all subsequent lab diagnostic endpoints
+          example: "223e4567-e89b-12d3-a456-426614174000"
+        labSessionToken:
+          type: string
+          description: |
+            A short-lived JWT scoped to this lab session and order.
+            Use this as the Bearer token for all
+            /diagnostic/lab/sessions/{sessionId}/* endpoints.
+            Expires when the original permission token expires.
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        medicalOrderId:
+          type: string
+          format: uuid
+          description: The specific lab order this session is scoped to
+          example: "aabbccdd-e89b-12d3-a456-426614174000"
+        expiresAt:
+          type: string
+          format: date-time
+          example: "2026-04-18T12:00:00.000Z"
+        patient:
+          type: object
+          description: Basic patient info shown on the lab dashboard
+          properties:
+            patientId:
+              type: string
+              format: uuid
+              example: "abc12345-e89b-12d3-a456-426614174000"
+            fullName:
+              type: string
+              example: "Sara Ahmed Jenkins"
+            gender:
+              type: string
+              example: FEMALE
+            age:
+              type: integer
+              example: 34
+
+    StartImagingSessionResponse:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+          description: Used as the {sessionId} path parameter in all subsequent imaging diagnostic endpoints
+          example: "323e4567-e89b-12d3-a456-426614174000"
+        imagingSessionToken:
+          type: string
+          description: |
+            A short-lived JWT scoped to this imaging session and order.
+            Use this as the Bearer token for all
+            /diagnostic/imaging/sessions/{sessionId}/* endpoints.
+            Expires when the original permission token expires.
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        medicalOrderId:
+          type: string
+          format: uuid
+          description: The specific imaging order this session is scoped to
+          example: "aabbccdd-e89b-12d3-a456-426614174001"
+        expiresAt:
+          type: string
+          format: date-time
+          example: "2026-04-18T12:00:00.000Z"
+        patient:
+          type: object
+          description: Basic patient info shown on the imaging center dashboard
+          properties:
+            patientId:
+              type: string
+              format: uuid
+              example: "abc12345-e89b-12d3-a456-426614174000"
+            fullName:
+              type: string
+              example: "Sara Ahmed Jenkins"
+            gender:
+              type: string
+              example: FEMALE
+            age:
+              type: integer
+              example: 34
+
+    LabOrderViewResponse:
+      type: object
+      properties:
+        patientMedicalIdentity:
+          $ref: "#/components/schemas/MedicalIdentityResponse"
+        labOrder:
+          type: object
+          properties:
+            orderId:
+              type: string
+              format: uuid
+              example: "aabbccdd-e89b-12d3-a456-426614174000"
+            orderStatus:
+              type: string
+              enum: [PENDING, IN_PROGRESS, COMPLETED, CANCELLED]
+              example: PENDING
+            orderedAt:
+              type: string
+              format: date-time
+              example: "2026-04-18T09:30:00.000Z"
+            orderedBy:
+              type: string
+              description: Full name of the ordering HCP
+              example: "Dr. Khaled Mostafa"
+            testType:
+              type: string
+              example: "COMPLETE_BLOOD_COUNT"
+            specimenType:
+              type: string
+              nullable: true
+              example: "BLOOD"
+            priority:
+              type: string
+              enum: [ROUTINE, URGENT, STAT]
+              example: ROUTINE
+            fastingRequired:
+              type: boolean
+              example: false
+            clinicalIndication:
+              type: string
+              nullable: true
+              example: "Rule out anaemia"
+
+    ImagingOrderViewResponse:
+      type: object
+      properties:
+        patientMedicalIdentity:
+          $ref: "#/components/schemas/MedicalIdentityResponse"
+        imagingOrder:
+          type: object
+          properties:
+            orderId:
+              type: string
+              format: uuid
+              example: "aabbccdd-e89b-12d3-a456-426614174001"
+            orderStatus:
+              type: string
+              enum: [PENDING, IN_PROGRESS, COMPLETED, CANCELLED]
+              example: PENDING
+            orderedAt:
+              type: string
+              format: date-time
+              example: "2026-04-18T09:30:00.000Z"
+            orderedBy:
+              type: string
+              description: Full name of the ordering HCP
+              example: "Dr. Khaled Mostafa"
+            imagingType:
+              type: string
+              example: "MRI"
+            bodyPart:
+              type: string
+              example: "CHEST"
+            priority:
+              type: string
+              enum: [ROUTINE, URGENT, STAT]
+              example: ROUTINE
+            contrastUsed:
+              type: boolean
+              example: false
+            clinicalIndication:
+              type: string
+              nullable: true
+              example: "Evaluate lung hyperinflation"
+
+    UploadLabResultResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Lab results submitted successfully."
+        orderId:
+          type: string
+          format: uuid
+          example: "aabbccdd-e89b-12d3-a456-426614174000"
+        resultId:
+          type: string
+          format: uuid
+          example: "eeff1122-e89b-12d3-a456-426614174000"
+        documentIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          example:
+            - "ddee9988-e89b-12d3-a456-426614174000"
+
+    UploadImagingResultResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Imaging results submitted successfully."
+        orderId:
+          type: string
+          format: uuid
+          example: "aabbccdd-e89b-12d3-a456-426614174001"
+        resultId:
+          type: string
+          format: uuid
+          example: "eeff3344-e89b-12d3-a456-426614174000"
+        documentIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          example:
+            - "ddee7766-e89b-12d3-a456-426614174000"
 
     MedicalIdentityResponse:
       type: object
@@ -1575,13 +2535,32 @@ components:
       bearerFormat: JWT
       description: |
         Standard user JWT returned from POST /auth/login/verify-otp.
-        Used to authenticate as a PATIENT or HEALTHCARE_PROVIDER.
+        Used to authenticate as a PATIENT, HEALTHCARE_PROVIDER, LAB,
+        or IMAGING_CENTER.
 
     ClinicalSessionToken:
       type: http
       scheme: bearer
       bearerFormat: JWT
       description: |
-        Short-lived JWT scoped to a specific patient session.
+        Short-lived JWT scoped to a specific HCP–patient session.
         Returned from POST /clinical/sessions.
         Used for all /clinical/sessions/{sessionId}/* endpoints.
+
+    LabSessionToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Short-lived JWT scoped to a specific lab session and order.
+        Returned from POST /diagnostic/lab/sessions.
+        Used for all /diagnostic/lab/sessions/{sessionId}/* endpoints.
+
+    ImagingSessionToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Short-lived JWT scoped to a specific imaging session and order.
+        Returned from POST /diagnostic/imaging/sessions.
+        Used for all /diagnostic/imaging/sessions/{sessionId}/* endpoints.
