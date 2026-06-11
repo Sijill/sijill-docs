@@ -1,0 +1,144 @@
+openapi: 3.0.3
+info:
+  title: Sijill Patient Home API
+  version: 1.0.0
+  description: Home screen endpoints for the patient mobile application.
+
+servers:
+  - url: http://localhost:8000
+
+tags:
+  - name: Patient Home
+    description: Home screen data for the patient mobile app
+
+paths:
+  /api/v1/patient/home/reminders/counters:
+    get:
+      tags:
+        - Patient Home
+      summary: Get home reminder counters
+      description: Returns the three reminder counters shown on the patient home screen.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Reminder counters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HomeReminderCountersResponse"
+              example:
+                counters:
+                  medicationReminders: 1
+                  upcomingAppointments: 0
+                  pendingTestOrders: 4
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+
+  /api/v1/patient/home/today-schedule:
+    get:
+      tags:
+        - Patient Home
+      summary: Get today's schedule
+      description: |
+        Returns the items that should appear in the patient's "Today's Schedule" section.
+        This is built from active reminders only.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Today's schedule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TodayScheduleResponse"
+              example:
+                schedule:
+                  - time: "09:00 AM"
+                    what: "Amlodipine"
+                    kind: "MEDICATION"
+                  - time: "10:30 AM"
+                    what: "Appointment with Dr. Khaled Mostafa Ali"
+                    kind: "APPOINTMENT"
+                  - time: "02:00 PM"
+                    what: "Lab: COMPLETE_BLOOD_COUNT"
+                    kind: "MEDICAL_ORDER"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    HomeReminderCountersResponse:
+      type: object
+      required:
+        - counters
+      properties:
+        counters:
+          $ref: "#/components/schemas/HomeReminderCounters"
+
+    HomeReminderCounters:
+      type: object
+      required:
+        - medicationReminders
+        - upcomingAppointments
+        - pendingTestOrders
+      properties:
+        medicationReminders:
+          type: integer
+          format: int32
+          description: Active medication reminders for the patient.
+          example: 1
+        upcomingAppointments:
+          type: integer
+          format: int32
+          description: Active upcoming appointment reminders.
+          example: 0
+        pendingTestOrders:
+          type: integer
+          format: int32
+          description: Active lab and imaging test-order reminders whose order status is pending or in progress.
+          example: 4
+
+    TodayScheduleResponse:
+      type: object
+      required:
+        - schedule
+      properties:
+        schedule:
+          type: array
+          items:
+            $ref: "#/components/schemas/TodayScheduleItem"
+
+    TodayScheduleItem:
+      type: object
+      required:
+        - time
+        - what
+        - kind
+      properties:
+        time:
+          type: string
+          description: Display time for the item.
+          example: "09:00 AM"
+        what:
+          type: string
+          description: Human-readable label shown on the home screen.
+          example: "Lab: COMPLETE_BLOOD_COUNT"
+        kind:
+          type: string
+          enum:
+            - MEDICATION
+            - APPOINTMENT
+            - MEDICAL_ORDER
+          description: Type of reminder behind the schedule item.
+          example: "MEDICAL_ORDER"
